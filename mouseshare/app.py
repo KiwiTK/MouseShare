@@ -469,6 +469,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(box)
         box, body = card(tr('随时收回控制'))
         body.setSpacing(10)
+        self.reclaim = QCheckBox(tr('操作本机实体键鼠立即收回'))
+        self.reclaim.setChecked(self.settings.get("reclaim_on_input", True))
+        self.reclaim.setToolTip(tr('被其他电脑控制时，动一下本机的键鼠就把控制收回来。关闭后只能用下方快捷键或托盘菜单收回；单独按住 Control / Shift 之类的修饰键始终不会收回。'))
+        body.addWidget(self.reclaim)
         modifiers = ["Control", "Option"] if sys.platform == "darwin" else ["Ctrl", "Alt"]
         if sys.platform.startswith('linux'):
             modifiers.append('Shift')
@@ -570,6 +574,7 @@ class MainWindow(QMainWindow):
                     game_processes=[s.strip() for s in self.games.text().split(";") if s.strip()],
                     startup=self.startup.isChecked(), swap_ctrl_meta=self.swap.isChecked(),
                     allow_locked=self.allow_locked.isChecked(),
+                    reclaim_on_input=self.reclaim.isChecked(),
                     remote_pointer=self.pointer_highlight.isChecked(), pointer_color=self.pointer_color.currentData())
 
     def bind_settings_feedback(self):
@@ -577,7 +582,7 @@ class MainWindow(QMainWindow):
         self.form_saved_once = False
         for signal in (self.device_name.textChanged, self.side.currentIndexChanged,
                        self.speed.valueChanged, self.fullscreen.toggled, self.games.textChanged,
-                       self.startup.toggled, self.allow_locked.toggled, self.swap.toggled,
+                       self.startup.toggled, self.allow_locked.toggled, self.reclaim.toggled, self.swap.toggled,
                        self.pointer_highlight.toggled, self.pointer_color.currentIndexChanged):
             signal.connect(self.settings_changed)
         self.settings_changed()

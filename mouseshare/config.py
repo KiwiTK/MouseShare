@@ -30,6 +30,7 @@ class Settings:
             "name": platform.node() or "My computer",
             "side": "right", "sensitivity": 1.0,
             "game_mode": False, "auto_fullscreen": True, "allow_locked": False,
+            "reclaim_on_input": True,
             "game_processes": list(DEFAULT_PROCESSES), "game_catalog_version": CATALOG_VERSION,
             "peers": {}, "startup": False,
             "language": "system",

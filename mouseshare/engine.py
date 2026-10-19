@@ -27,6 +27,11 @@ def peer_id(session):
     return getattr(session, 'peer_id', '') if session else ''
 
 
+# Bare modifier keys (both sides) plus Caps Lock. Holding one of these is how
+# multi-select is performed, so it must never be read as "give me control back".
+MODIFIER_KEYS = frozenset({57, 224, 225, 226, 227, 228, 229, 230, 231})
+
+
 def supports(session, feature):
     return feature in getattr(session, 'peer_features', []) if session else False
 
@@ -317,7 +322,9 @@ class Engine:
         self.activity(event)
         kind = event['type']
         if self.state in {'receiving', 'standby'}:
-            self.release(True)
+            if (self.settings.get('reclaim_on_input', True)
+                    and not (kind == 'key' and event.get('key') in MODIFIER_KEYS)):
+                self.release(True)
             if kind != 'move':
                 return
         if self.state in {'sending', 'pending'}:
