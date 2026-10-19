@@ -4,7 +4,7 @@
 
 Windows / macOS / Linux（X11）局域网鼠标键盘、剪贴板和文件共享。鼠标移到相接边缘立即进入另一台电脑，键盘随之切换；沿原路移回即可返回。
 
-[下载安装包](https://github.com/413180794/MouseShare/releases) · [构建记录](https://github.com/413180794/MouseShare/actions) · [双机验收清单](docs/ACCEPTANCE.md)
+[下载安装包](https://github.com/kiwitk/MouseShare/releases) · [构建记录](https://github.com/kiwitk/MouseShare/actions) · [双机验收清单](docs/ACCEPTANCE.md)
 
 **当前公开预览版为 v0.7.4。** v0.7.5 源码已修复 Windows 首次碰边／持续顶边漏触发，候选安装包处于发布草稿；GitHub 构建聚合状态核对完成后才能公开。详见[验收记录](docs/ACCEPTANCE.md#v075-windows-碰边漏触发离开后重试才生效)。
 
