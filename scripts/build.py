@@ -128,9 +128,19 @@ def main():
         licenses(DIST / "MouseShare/licenses")
         run(DIST / "MouseShare/MouseShare.exe", "--smoke-test")
         run(DIST / "MouseShare/MouseShare.exe", "--drop-smoke-test")
-        compiler = Path(r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe")
-        run(compiler, ROOT / "packaging/windows.iss")
         shutil.copyfile(ROOT / "docs/INSTALL-Windows.txt", DIST / "MouseShare/INSTALL.txt")
+        setup = DIST / "MouseShare-0.7.1-Windows-x64-Setup.exe"
+        compiler = next((path for path in [
+            Path(r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"),
+            Path(r"C:\Program Files\Inno Setup 6\ISCC.exe"),
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Inno Setup 6" / "ISCC.exe",
+        ] if path.is_file()), None)
+        if compiler:
+            run(compiler, ROOT / "packaging/windows.iss")
+        else:
+            # Inno Setup is optional; the portable archive remains fully usable.
+            print("Inno Setup not found - skipping installer, building portable archive only")
+            setup.unlink(missing_ok=True)
         shutil.make_archive(str(DIST / "MouseShare-0.7.1-Windows-x64-portable"), "zip",
                             DIST, "MouseShare")
     elif sys.platform.startswith("linux"):

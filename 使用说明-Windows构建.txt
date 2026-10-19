@@ -1,0 +1,71 @@
+MouseShare Windows 一键构建说明
+================================
+
+这个包用来在 Windows 上生成 MouseShare.exe。
+（PyInstaller 不能跨平台编译，所以 exe 必须在 Windows 机器上生成。）
+
+
+【一、准备】
+
+需要 Python 3.12 / 3.13 / 3.14 其中一个。
+如果还没装，在 PowerShell 或 CMD 里执行：
+
+    winget install Python.Python.3.13
+
+安装时务必勾选 "Add python.exe to PATH"。
+装完请用管理员身份重新打开一次命令行窗口再继续。
+
+不需要 Inno Setup —— 没有它也能用，只是只出便携版 ZIP，不出 Setup.exe。
+想要 Setup.exe 的话先执行：
+
+    winget install JRSoftware.InnoSetup.6
+
+
+【二、构建】
+
+1. 把本压缩包解压到任意文件夹（路径建议全英文，例如 C:\build\mouseshare）
+2. 双击 build-windows.bat
+3. 等待几分钟，中途不要关窗口
+
+脚本会自动：建虚拟环境 → 装依赖 → 用 PyInstaller 打包 → 跑冒烟测试 → 输出安装包
+
+
+【三、产物】
+
+在解压目录下的 dist 文件夹里：
+
+    MouseShare-0.7.1-Windows-x64-portable.zip   便携版（解压即用）
+    MouseShare-0.7.1-Windows-x64-Setup.exe      安装版（有 Inno Setup 才会生成）
+
+覆盖安装：直接把 portable.zip 解压覆盖到你原先 MouseShare 的安装目录即可。
+（C:\Program Files\MouseShare，若装过 Setup 版的话）
+
+
+【四、出问题怎么办】
+
+· 提示找不到 Python
+  装完 Python 后没重启命令行，或者装的时候没勾 PATH。
+  重新打开一个命令行窗口再跑一次。
+
+· pip 下载超时 / 连不上
+  脚本默认用清华镜像。如果镜像有问题，用官方源重试：
+
+      build-windows.bat --pip-official
+
+· 杀毒软件报毒 / 拦截
+  PyInstaller 生成的 exe 常被误报，把 dist 目录加进白名单即可。
+
+
+【五、这次改了什么】
+
+修复"贴边跨屏经常识别慢、要好几次才生效"的问题：
+
+· 新增「甩到边缘立即跨屏」开关（默认开）
+  光标被屏幕边缘挡住后，只要继续向外推就立刻切换，不用等停留时间。
+· 新增「边缘判定宽度」（默认 12 像素）
+  判定区放宽，但推力不足不会触发，所以不会误触。
+· 跨屏失败后的冷却 0.8 秒 → 0.25 秒
+· 重新武装需要离开边缘的距离 24 像素 → 6 像素
+· 边缘停留时间下限放宽到 0 毫秒
+
+设置界面在 设置 → 高级 里可以看到新增的两个开关。

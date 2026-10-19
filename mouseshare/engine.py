@@ -58,9 +58,22 @@ class Engine:
         self.handoff_point = None
         self.last_screen = None
         self.events = collections.deque()
+        self.push_samples = collections.deque()
         self.condition = threading.Condition()
         self.stopped = False
         self.thread = None
+        self.thresholds()
+
+    def thresholds(self):
+        """Cache tuning values; settings.get() round-trips JSON, so keep it off hot paths."""
+        self.edge_margin = self.settings.get('edge_margin', 12)
+        self.rearm_margin = self.settings.get('rearm_margin', 6)
+        self.push_crossing = self.settings.get('push_crossing', True)
+        self.push_window = self.settings.get('push_window', 0.25)
+        self.push_pixels = self.settings.get('push_pixels', 10)
+        self.release_cooldown = self.settings.get('release_cooldown', 0.25)
+        self.pending_timeout = self.settings.get('pending_timeout', 0.6)
+        return self
 
     @property
     def game(self):
@@ -144,13 +157,14 @@ class Engine:
         self.edge_since = self.return_since = None
         self.edge_target = None
         self.pending_events.clear()
+        self.push_samples.clear()
         self.backend.capture(False)
         self.backend.cursor_hidden(False)
         try:
             self.backend.release_all()
         except OSError:
             self.error = tr('系统阻止了按键释放，请检查目标程序权限')
-        self.cooldown, self.armed = self.clock()+0.8, False
+        self.cooldown, self.armed = self.clock()+self.release_cooldown, False
         if prior in {'sending', 'pending'}:
             edge = return_edge or self.handoff_side
             ratio = self.handoff_ratio if return_ratio is None else return_ratio
@@ -233,6 +247,7 @@ class Engine:
         elif action == 'panic':
             self.release(True)
         elif action == 'changed':
+            self.thresholds()
             self.release(True)
             self.announce()
         elif action == 'select_peer':
@@ -274,8 +289,26 @@ class Engine:
                 or kind == 'key' and event.get('down') and event.get('key', 0) < 224):
             self.activity_counter += 1
 
-    def edge_candidates(self, position, bounds):
-        return [side for side in ('left', 'right', 'top', 'bottom') if at_edge(side, *position, bounds)]
+    def edge_candidates(self, position, bounds, margin=2):
+        return [side for side in ('left', 'right', 'top', 'bottom') if at_edge(side, *position, bounds, margin)]
+
+    def sample_push(self, now):
+        """Bank the hardware deltas that the screen edge swallowed."""
+        dx, dy = self.backend.push_delta() if self.backend else (0, 0)
+        if dx or dy:
+            self.push_samples.append((now, dx, dy))
+        cutoff = now-self.push_window
+        while self.push_samples and self.push_samples[0][0] < cutoff:
+            self.push_samples.popleft()
+
+    def push_toward(self, side, now):
+        """True while the hand is still driving the mouse outwards at the edge."""
+        if not self.push_samples:
+            return False
+        axis = 1 if side in {'left', 'right'} else 2
+        sign = -1 if side in {'left', 'top'} else 1
+        return sign*sum(sample[axis] for sample in self.push_samples
+                        if now-sample[0] <= self.push_window) >= self.push_pixels
 
     def edge_ratio(self, side, position, bounds):
         x, y = position
@@ -324,11 +357,11 @@ class Engine:
             self.last_position = event['x'], event['y']
             bounds = self.backend.monitor_at(self.last_position) if self.layout() else self.backend.bounds()
             screen = self.backend.screen_info()
-            if all(not at_edge(side, *self.last_position, bounds, margin=24)
+            if all(not at_edge(side, *self.last_position, bounds, margin=self.rearm_margin)
                    for side in (('left', 'right', 'top', 'bottom') if self.layout() else (self.settings.get('side'),))):
                 self.armed = True
             candidates = []
-            for side in self.edge_candidates(self.last_position, bounds):
+            for side in self.edge_candidates(self.last_position, bounds, self.edge_margin):
                 ratio = self.edge_ratio(side, self.last_position, self.backend.bounds())
                 point = normalized(self.last_position, screen)
                 mapped = self.crossing(self.local_id, side, point)
@@ -337,7 +370,11 @@ class Engine:
                     key, target_ratio = target
                     available = self.availability.get(key, self.peer_available if key == peer_id(self.session) else False)
                     if available:
-                        candidates.append((key, side, ratio, target_ratio, mapped[2] if mapped else None, point))
+                        # `tight` keeps the dwell path as strict as before: parking a few
+                        # pixels from the edge must not cross on its own. The wider band
+                        # only ever fires when the hand keeps pushing outwards.
+                        candidates.append((key, side, ratio, target_ratio, mapped[2] if mapped else None,
+                                           point, at_edge(side, *self.last_position, bounds, 2)))
             target = candidates[0] if len(candidates) == 1 else None
             if target and self.armed and self.available:
                 if self.edge_target is None or self.edge_target[:2] != target[:2]:
@@ -369,6 +406,7 @@ class Engine:
 
     def tick(self):
         now = self.clock()
+        self.sample_push(now)
         if now-self.last_auto > 0.5:
             self.last_auto = now
             screen = self.backend.screen_info()
@@ -393,12 +431,15 @@ class Engine:
                 if before != self.game:
                     self.release(True)
                     self.announce()
-        if self.state == 'pending' and now-self.pending_since > 1.5:
+        if self.state == 'pending' and now-self.pending_since > self.pending_timeout:
             self.release(True)
-        if (self.state == 'local' and self.edge_since is not None and self.edge_target
-                and now-self.edge_since >= self.settings.get('dwell_ms')/1000 and now >= self.cooldown
-                and self.available and not self.backend.keys and not self.backend.buttons):
-            key, side, source_ratio, target_ratio, target_point, source_point = self.edge_target
+        target = self.edge_target
+        if (self.state == 'local' and self.edge_since is not None and target
+                and now >= self.cooldown and self.available
+                and not self.backend.keys and not self.backend.buttons
+                and (target[6] and now-self.edge_since >= self.settings.get('dwell_ms')/1000
+                     or self.push_crossing and self.push_toward(target[1], now))):
+            key, side, source_ratio, target_ratio, target_point, source_point, tight = target
             session = self.sessions.get(key) or (self.session if key == peer_id(self.session) else None)
             if session:
                 self.handoff_side, self.handoff_ratio = side, source_ratio

@@ -29,6 +29,9 @@ class Settings:
         self.values = {
             "name": platform.node() or "My computer",
             "side": "right", "dwell_ms": 180, "sensitivity": 1.0,
+            "push_crossing": True, "edge_margin": 12, "rearm_margin": 6,
+            "push_window": 0.25, "push_pixels": 10,
+            "release_cooldown": 0.25, "pending_timeout": 0.6,
             "game_mode": False, "auto_fullscreen": True,
             "game_processes": list(DEFAULT_PROCESSES), "game_catalog_version": CATALOG_VERSION,
             "peers": {}, "startup": False,

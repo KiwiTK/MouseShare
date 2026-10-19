@@ -259,9 +259,17 @@ class WindowsBackend(BaseBackend):
         return U.DefWindowProcW(hwnd, msg, wparam, lparam)
 
     def raw_motion(self, mouse, device):
-        if not self.captured or mouse.ulExtraInformation == MARKER:
+        if mouse.ulExtraInformation == MARKER:
             return
         dx, dy = mouse.lLastX, mouse.lLastY
+        if not self.captured:
+            # The cursor stops at the screen edge but the mouse keeps reporting
+            # deltas. Bank them instead of dropping them, so the engine can tell
+            # a deliberate outward push from a pointer that merely rests near
+            # the edge. No local pointer motion is produced here.
+            if dx or dy:
+                self.accrue_push(dx, dy)
+            return
         if mouse.usFlags & 1:  # absolute devices (tablets / some remote sessions)
             metrics = (76, 77, 78, 79) if mouse.usFlags & 2 else (None, None, 0, 1)
             width, height = U.GetSystemMetrics(metrics[2]), U.GetSystemMetrics(metrics[3])

@@ -23,6 +23,8 @@ class BaseBackend:
         self.injected_keys = set()
         self.injected_buttons = set()
         self.inject_lock = threading.RLock()
+        self._push_lock = threading.Lock()
+        self._push_dx = self._push_dy = 0.0
         self.hotkey_keys = set()
         self.last_local = time.monotonic()
         self.native_file_paste_ready = False
@@ -147,6 +149,19 @@ class BaseBackend:
                 self.button(button, False)
             self.injected_keys.clear()
             self.injected_buttons.clear()
+
+    def accrue_push(self, dx, dy):
+        """Collect hardware deltas that the screen edge would otherwise swallow."""
+        with self._push_lock:
+            self._push_dx += dx
+            self._push_dy += dy
+
+    def push_delta(self):
+        """Drain the deltas accrued since the previous call."""
+        with self._push_lock:
+            dx, dy = self._push_dx, self._push_dy
+            self._push_dx = self._push_dy = 0.0
+        return dx, dy
 
     def stop(self):
         self.capture(False)

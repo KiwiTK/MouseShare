@@ -420,12 +420,24 @@ class MainWindow(QMainWindow):
         form.addRow(tr('简单双机方向（布局关闭时）'), self.side)
         row = QHBoxLayout()
         self.dwell = QSpinBox()
-        self.dwell.setRange(100, 1500)
+        self.dwell.setRange(0, 1500)
         self.dwell.setSuffix(" ms")
         self.dwell.setValue(self.settings.get("dwell_ms"))
         row.addWidget(self.dwell)
         row.addWidget(text_label(tr('在边缘停留多久后切换'), "hint"), 1)
         form.addRow(tr('边缘停留'), row)
+        self.push = QCheckBox(tr('甩到边缘立即跨屏'))
+        self.push.setChecked(self.settings.get("push_crossing", True))
+        self.push.setToolTip(tr('光标被屏幕边缘挡住后，只要继续向外推动就立刻切换，不必等待停留时间。'))
+        form.addRow(tr('即时跨屏'), self.push)
+        row = QHBoxLayout()
+        self.edge_margin = QSpinBox()
+        self.edge_margin.setRange(2, 64)
+        self.edge_margin.setSuffix(" px")
+        self.edge_margin.setValue(self.settings.get("edge_margin", 12))
+        row.addWidget(self.edge_margin)
+        row.addWidget(text_label(tr('光标进入边缘多少像素内开始判定，调小更不容易误触'), "hint"), 1)
+        form.addRow(tr('边缘判定宽度'), row)
         row = QHBoxLayout()
         self.speed = QDoubleSpinBox()
         self.speed.setRange(0.25, 4)
@@ -570,6 +582,7 @@ class MainWindow(QMainWindow):
     def form_values(self):
         return dict(name=self.device_name.text().strip(), side=self.side.currentData(),
                     dwell_ms=self.dwell.value(), sensitivity=self.speed.value(),
+                    push_crossing=self.push.isChecked(), edge_margin=self.edge_margin.value(),
                     auto_fullscreen=self.fullscreen.isChecked(),
                     game_processes=[s.strip() for s in self.games.text().split(";") if s.strip()],
                     startup=self.startup.isChecked(), swap_ctrl_meta=self.swap.isChecked(),
@@ -579,7 +592,8 @@ class MainWindow(QMainWindow):
         self.saved_form = self.form_values()
         self.form_saved_once = False
         for signal in (self.device_name.textChanged, self.side.currentIndexChanged, self.dwell.valueChanged,
-                       self.speed.valueChanged, self.fullscreen.toggled, self.games.textChanged,
+                       self.speed.valueChanged, self.push.toggled, self.edge_margin.valueChanged,
+                       self.fullscreen.toggled, self.games.textChanged,
                        self.startup.toggled, self.swap.toggled, self.pointer_highlight.toggled, self.pointer_color.currentIndexChanged):
             signal.connect(self.settings_changed)
         self.settings_changed()

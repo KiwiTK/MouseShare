@@ -228,8 +228,13 @@ class MacBackend(BaseBackend):
                            "down": kind in (Q.kCGEventLeftMouseDown, Q.kCGEventRightMouseDown,
                                             Q.kCGEventOtherMouseDown)}
             with self._capture_lock:
-                if message["type"] == "move" and self.captured:
-                    self.stationary_event(event)
+                if message["type"] == "move":
+                    if self.captured:
+                        self.stationary_event(event)
+                    elif message["dx"] or message["dy"]:
+                        # Quartz keeps reporting hardware deltas once the cursor is
+                        # pinned to the edge; bank them for crossing detection.
+                        self.accrue_push(message["dx"], message["dy"])
                 if self.physical(message):
                     return event if message["type"] == "move" else None
                 return event

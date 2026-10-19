@@ -457,5 +457,10 @@
   "右键扩展已更新，请重新打开文件管理器": "Context menu updated. Reopen your file manager.",
   "切换控制到此电脑": "Control this computer",
   "无需移动触控板；Ctrl+Alt+空格切换，再按一次收回。": "Switch without moving the trackpad. Ctrl+Alt+Space switches; press again to reclaim.",
-  "文件已共享：在目标窗口按 Ctrl+Alt+V 接收并粘贴": "Files shared. Press Ctrl+Alt+V in the destination window to receive and paste."
+  "文件已共享：在目标窗口按 Ctrl+Alt+V 接收并粘贴": "Files shared. Press Ctrl+Alt+V in the destination window to receive and paste.",
+  "甩到边缘立即跨屏": "Cross immediately when pushed into an edge",
+  "光标被屏幕边缘挡住后，只要继续向外推动就立刻切换，不必等待停留时间。": "Once the cursor is blocked by the screen edge, keeping the push outwards switches right away instead of waiting out the delay.",
+  "即时跨屏": "Instant crossing",
+  "边缘判定宽度": "Edge band",
+  "光标进入边缘多少像素内开始判定，调小更不容易误触": "How many pixels from the edge start the check; a smaller value reduces accidental switching"
 }
