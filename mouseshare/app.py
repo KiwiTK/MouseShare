@@ -451,6 +451,10 @@ class MainWindow(QMainWindow):
         self.startup = QCheckBox(tr('登录后自动启动'))
         self.startup.setChecked(self.settings.get("startup"))
         form.addRow(tr('开机启动'), self.startup)
+        self.allow_locked = QCheckBox(tr('锁屏后仍允许交接'))
+        self.allow_locked.setChecked(self.settings.get("allow_locked", False))
+        self.allow_locked.setToolTip(tr('本机锁定或停在安全桌面时，仍接受其他电脑的控制。用于在锁屏界面输入密码，最终能否输入取决于系统限制。'))
+        form.addRow(tr('锁屏交接'), self.allow_locked)
         self.pointer_highlight = QCheckBox(tr('远端控制时显示彩色光圈'))
         self.pointer_highlight.setChecked(self.settings.get('remote_pointer', True))
         form.addRow(tr('光标识别'), self.pointer_highlight)
@@ -565,6 +569,7 @@ class MainWindow(QMainWindow):
                     auto_fullscreen=self.fullscreen.isChecked(),
                     game_processes=[s.strip() for s in self.games.text().split(";") if s.strip()],
                     startup=self.startup.isChecked(), swap_ctrl_meta=self.swap.isChecked(),
+                    allow_locked=self.allow_locked.isChecked(),
                     remote_pointer=self.pointer_highlight.isChecked(), pointer_color=self.pointer_color.currentData())
 
     def bind_settings_feedback(self):
@@ -572,7 +577,8 @@ class MainWindow(QMainWindow):
         self.form_saved_once = False
         for signal in (self.device_name.textChanged, self.side.currentIndexChanged,
                        self.speed.valueChanged, self.fullscreen.toggled, self.games.textChanged,
-                       self.startup.toggled, self.swap.toggled, self.pointer_highlight.toggled, self.pointer_color.currentIndexChanged):
+                       self.startup.toggled, self.allow_locked.toggled, self.swap.toggled,
+                       self.pointer_highlight.toggled, self.pointer_color.currentIndexChanged):
             signal.connect(self.settings_changed)
         self.settings_changed()
 

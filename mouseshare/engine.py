@@ -405,7 +405,7 @@ class Engine:
                 self.last_screen = screen
                 self.broadcast(dict(type='screen', screen=screen), 'monitors-v1')
                 self.auxiliary(dict(type='screens_changed'))
-            blocked = not self.backend.desktop_active()
+            blocked = not self.backend.desktop_active() and not self.settings.get('allow_locked', False)
             if blocked != self.system_blocked:
                 self.system_blocked = blocked
                 self.release(True)

@@ -29,7 +29,7 @@ class Settings:
         self.values = {
             "name": platform.node() or "My computer",
             "side": "right", "sensitivity": 1.0,
-            "game_mode": False, "auto_fullscreen": True,
+            "game_mode": False, "auto_fullscreen": True, "allow_locked": False,
             "game_processes": list(DEFAULT_PROCESSES), "game_catalog_version": CATALOG_VERSION,
             "peers": {}, "startup": False,
             "language": "system",

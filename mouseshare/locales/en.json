@@ -461,5 +461,8 @@
   "跨屏方式": "Switching",
   "碰到相接边缘立即切换": "Switch immediately at a connected edge",
   "移到{p0}边缘立即跨屏": "Move to the {p0} edge to switch immediately",
-  "把鼠标移到相接边缘即可立即跨屏。": "Move to a connected edge to switch immediately."
+  "把鼠标移到相接边缘即可立即跨屏。": "Move to a connected edge to switch immediately.",
+  "锁屏后仍允许交接": "Keep handoff available while locked",
+  "锁屏交接": "Locked handoff",
+  "本机锁定或停在安全桌面时，仍接受其他电脑的控制。用于在锁屏界面输入密码，最终能否输入取决于系统限制。": "Accept control from another computer while this one is locked or showing a secure desktop. Useful for typing a password on the lock screen, though the system may still refuse the input."
 }
