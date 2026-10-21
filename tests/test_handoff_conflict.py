@@ -53,13 +53,30 @@ def hit_edge(engine, now):
     engine.tick()
 
 
-def test_controlled_machine_does_not_start_a_second_handoff(tmp_path):
-    """While a peer drives us, our own edge belongs to the remote cursor."""
+def test_controlled_machine_takes_its_pointer_back_without_a_second_handoff(tmp_path):
+    """A deliberate local move reclaims control, but must not open a crossing.
+
+    While a peer drives us, our own edge belongs to the remote cursor. Starting
+    a handoff there mints a second flow token the peer does not hold, which is
+    what stranded the driving machine in 'sending'. Reclaiming first — and
+    letting the next sample route normally — keeps one token in play.
+    """
     engine, now = setup(tmp_path)
     engine.settings.set(reclaim_on_input=False)
     engine.settings.set(side='left')
     engine.state, engine.controller, engine.flow = 'receiving', False, 'a' * 32
     engine.physical({"type": "move", "x": 0, "y": 500, "dx": -14, "dy": 0})
+    assert engine.state == 'local'
+    assert not any(m['type'] == 'enter' for m in engine.session.messages)
+
+
+def test_a_nudge_at_our_own_edge_leaves_the_peer_in_control(tmp_path):
+    """Two pixels of desk jitter must not steal control, even at the edge."""
+    engine, now = setup(tmp_path)
+    engine.settings.set(reclaim_on_input=False)
+    engine.settings.set(side='left')
+    engine.state, engine.controller, engine.flow = 'receiving', False, 'a' * 32
+    engine.physical({"type": "move", "x": 0, "y": 500, "dx": -2, "dy": 0})
     assert engine.state == 'receiving'
     assert not any(m['type'] == 'enter' for m in engine.session.messages)
 

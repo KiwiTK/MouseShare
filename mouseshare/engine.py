@@ -65,6 +65,7 @@ class Engine:
         self.incoming_edge = 'left'
         self.handoff_side, self.handoff_ratio = settings.get('side'), 0.5
         self.push = {}
+        self.local_push = (0.0, 0.0)
         self.pending_since = self.last_auto = 0
         self.pending_events = []
         self.last_status = None
@@ -181,6 +182,7 @@ class Engine:
         self.route_edge = None
         self.edge_target = None
         self.push.clear()
+        self.local_push = (0.0, 0.0)
         self.pending_events.clear()
         self.backend.capture(False)
         self.backend.cursor_hidden(False)
@@ -355,6 +357,33 @@ class Engine:
         """How close to the border a sample counts as having arrived (user setting)."""
         return max(2, int(self.settings.get('edge_margin', 2) or 2))
 
+    def local_pressure(self, event):
+        """Whether our own mouse has moved enough to mean "give me my pointer back".
+
+        Turning reclaim-on-input off should mean "a nudge on the desk does not
+        yank control away from the peer", not "this machine can never take its
+        pointer back while a peer is driving it". A desk bump is a pixel or two
+        and dies out; reaching for the mouse is dozens of pixels over a few
+        frames. Measuring travel over the same window as the edge push keeps the
+        two decisions consistent, and a single big sample still counts so a fast
+        flick is not missed.
+        """
+        kind = event['type']
+        if kind in {'key', 'button'}:
+            # A keypress or click is a deliberate act; there is no jitter to guard against.
+            return True
+        window = max(0.05, float(self.settings.get('push_window', 0.25) or 0.25))
+        threshold = max(1.0, float(self.settings.get('push_pixels', 10) or 10))
+        now = self.clock()
+        amount = abs(event.get('dx', 0)) + abs(event.get('dy', 0))
+        total, since = self.local_push
+        total = (0.0 if now - since > window else total) + amount
+        self.local_push = (total, now)
+        if total < threshold:
+            return False
+        self.local_push = (0.0, now)
+        return True
+
     def push_total(self, side, position, bounds, dx, dy, now):
         """Outward travel accumulated over a short window, toward one edge.
 
@@ -414,15 +443,16 @@ class Engine:
             # otherwise their own pointer stays frozen behind a screen they
             # cannot see, with no way back but a restart.
             reclaim = self.settings.get('reclaim_on_input', True) or not self.desktop_live
+            if not reclaim:
+                reclaim = self.local_pressure(event)
             if reclaim and not (kind == 'key' and event.get('key') in MODIFIER_KEYS):
                 self.release(True)
-            if self.state != 'local':
-                # Still driven by a peer. Our pointer is not ours to route, and
-                # an edge here belongs to the remote cursor, not to a push of
-                # ours — starting a handoff would mint a second flow token that
-                # the peer does not hold, which strands it in 'sending' (see the
-                # competing 'enter' branch of receive()).
-                return
+            # This sample is spent either way. Driving it straight into the edge
+            # check would use wherever the hand happened to leave the mouse —
+            # often the very edge the remote cursor came in through — and bounce
+            # control back to the peer on the same movement that took it away.
+            # The next sample is routed normally, once the pointer is ours again.
+            return
         if self.state in {'sending', 'pending'}:
             message = {k: v for k, v in event.items() if k not in {'x', 'y'} and not k.startswith('_')}
             if kind in {'move', 'scroll'}:
@@ -515,6 +545,7 @@ class Engine:
         self.pending_events.clear()
         self.edge_target = None
         self.push.clear()
+        self.local_push = (0.0, 0.0)
         layout = self.layout()
         if layout and supports(session, 'layout-v1'):
             session.send(dict(type='layout', layout=layout))
