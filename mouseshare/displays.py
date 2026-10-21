@@ -54,8 +54,11 @@ def project(point, screen):
 
 
 def normalized(point, screen):
-    return [(point[0]-screen.get('x', 0))/max(1, screen['w']-1),
-            (point[1]-screen.get('y', 0))/max(1, screen['h']-1)]
+    # WindowServer clamps a pinned cursor to the exclusive bound (x == w), not
+    # w-1, which divided out to 1.0005 and failed valid_point's 0..1 contract —
+    # the edge crossing then found no target exactly when the push was fastest.
+    return [min(1.0, max(0.0, (point[0]-screen.get('x', 0))/max(1, screen['w']-1))),
+            min(1.0, max(0.0, (point[1]-screen.get('y', 0))/max(1, screen['h']-1)))]
 
 
 def native(point, screen):

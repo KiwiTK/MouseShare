@@ -130,21 +130,34 @@ def _color(p, size):
 
 
 def _template(p, size):
-    # Monochrome menu bar mask: outlined source screen, solid destination with a cut-out pointer.
-    # The menu bar tile is small and square, so a wide composition wastes most of the height.
-    # The screens are drawn tall and nearly edge to edge; the jump trail is left out because it
-    # turns to mush below 32px anyway.
+    # Monochrome menu bar mask: the shared-mark — two diagonally overlapping
+    # screens with the pointer at their junction, one input feeding both. Same
+    # geometry as the 44 px logo, rescaled so the artwork fills 82% of the
+    # canvas (105/128), matching the macOS menu-bar convention measured on
+    # WorkBuddy's trayTemplate (18/22). The second screen is a stroked ring over
+    # a cleared interior: as a template mask it stays readable on both bar tints.
     black = QColor("#000000")
-    p.setPen(_pen(black, 10))
-    p.setBrush(Qt.BrushStyle.NoBrush)
-    p.drawRoundedRect(QRectF(6, 12, 51, 74), 10, 10)
     p.setPen(Qt.PenStyle.NoPen)
     p.setBrush(black)
-    p.drawRoundedRect(QRectF(64, 10, 58, 78), 12, 12)
-    for x in (31, 93):
-        p.drawRoundedRect(QRectF(x - 14, 90, 28, 11), 4, 4)
+    p.drawRoundedRect(QRectF(16, 16, 60, 60), 19.5, 19.5)
     p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
-    p.drawPath(pointer(86, 38, 1.4))
+    p.drawRoundedRect(QRectF(52, 52, 60, 60), 19.5, 19.5)
+    p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.setPen(_pen(black, 9))
+    p.drawRoundedRect(QRectF(52, 52, 60, 60), 19.5, 19.5)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(black)
+    mark = QPainterPath(QPointF(63.4, 60.4))
+    mark.lineTo(63.4, 92.9)
+    mark.lineTo(74.2, 85.9)
+    mark.lineTo(80.4, 103.8)
+    mark.lineTo(88.9, 100.3)
+    mark.lineTo(82.8, 83.6)
+    mark.lineTo(100.5, 82.1)
+    mark.closeSubpath()
+    p.drawPath(mark)
+
 
 
 def app_icon():
