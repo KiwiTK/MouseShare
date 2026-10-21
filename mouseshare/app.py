@@ -76,6 +76,33 @@ def shortcut(action):
     return 'Ctrl+Alt+' + ('Esc' if action == 'panic' else 'F12')
 
 
+def set_dock_icon(visible):
+    """Show or hide the Dock tile. Menu bar access is unaffected; no-op off macOS."""
+    if sys.platform != 'darwin':
+        return
+    try:
+        from AppKit import (NSApplication, NSApplicationActivationPolicyAccessory,
+                            NSApplicationActivationPolicyRegular)
+        policy = NSApplicationActivationPolicyRegular if visible else NSApplicationActivationPolicyAccessory
+        NSApplication.sharedApplication().setActivationPolicy_(policy)
+    except (ImportError, AttributeError, ValueError):
+        pass
+
+
+def activate_app():
+    """Accessory apps must ask the window server to come forward explicitly."""
+    if sys.platform != 'darwin':
+        return
+    try:
+        from AppKit import NSApplication
+        application = NSApplication.sharedApplication()
+        activate = getattr(application, 'activateIgnoringOtherApps_', None)
+        if activate:
+            activate(True)
+    except (ImportError, AttributeError):
+        pass
+
+
 class Bridge(QObject):
     pair = Signal(object)
     peer = Signal(dict)
@@ -455,6 +482,12 @@ class MainWindow(QMainWindow):
         self.allow_locked.setChecked(self.settings.get("allow_locked", False))
         self.allow_locked.setToolTip(tr('本机锁定或停在安全桌面时，仍接受其他电脑的控制。用于在锁屏界面输入密码，最终能否输入取决于系统限制。'))
         form.addRow(tr('锁屏交接'), self.allow_locked)
+        self.dock_icon = QCheckBox(tr('在程序坞显示图标'))
+        self.dock_icon.setChecked(self.settings.get('dock_icon', False))
+        self.dock_icon.setToolTip(tr('关闭后 MouseShare 只留在菜单栏，不占程序坞，也不会出现在 ⌘Tab 切换里。点菜单栏图标即可打开窗口。'))
+        self.dock_icon.toggled.connect(set_dock_icon)
+        if sys.platform == 'darwin':
+            form.addRow(tr('程序坞图标'), self.dock_icon)
         self.pointer_highlight = QCheckBox(tr('远端控制时显示彩色光圈'))
         self.pointer_highlight.setChecked(self.settings.get('remote_pointer', True))
         form.addRow(tr('光标识别'), self.pointer_highlight)
@@ -573,7 +606,7 @@ class MainWindow(QMainWindow):
                     auto_fullscreen=self.fullscreen.isChecked(),
                     game_processes=[s.strip() for s in self.games.text().split(";") if s.strip()],
                     startup=self.startup.isChecked(), swap_ctrl_meta=self.swap.isChecked(),
-                    allow_locked=self.allow_locked.isChecked(),
+                    allow_locked=self.allow_locked.isChecked(), dock_icon=self.dock_icon.isChecked(),
                     reclaim_on_input=self.reclaim.isChecked(),
                     remote_pointer=self.pointer_highlight.isChecked(), pointer_color=self.pointer_color.currentData())
 
@@ -582,7 +615,8 @@ class MainWindow(QMainWindow):
         self.form_saved_once = False
         for signal in (self.device_name.textChanged, self.side.currentIndexChanged,
                        self.speed.valueChanged, self.fullscreen.toggled, self.games.textChanged,
-                       self.startup.toggled, self.allow_locked.toggled, self.reclaim.toggled, self.swap.toggled,
+                       self.startup.toggled, self.allow_locked.toggled, self.dock_icon.toggled,
+                       self.reclaim.toggled, self.swap.toggled,
                        self.pointer_highlight.toggled, self.pointer_color.currentIndexChanged):
             signal.connect(self.settings_changed)
         self.settings_changed()
@@ -679,6 +713,7 @@ class MainWindow(QMainWindow):
         self.show()
         self.raise_()
         self.activateWindow()
+        activate_app()
 
     def notice(self, text):
         self.notice_label.setText(text)
@@ -1067,6 +1102,7 @@ def main():
         return 1
     try:
         settings = Settings()
+        set_dock_icon(settings.get('dock_icon', False))
         window = MainWindow(settings, Identity(settings.directory), args.demo)
         window.diagnostics_requested = args.diagnostics
     except Exception as exc:

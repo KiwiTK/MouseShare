@@ -82,7 +82,8 @@ def main():
                "--collect-submodules", "mouseshare", "--collect-data", "mouseshare"]
     if sys.platform == "darwin":
         command += ["--osx-bundle-identifier", "io.github.makesail.mouseshare",
-                    "--hidden-import", "ApplicationServices", "--hidden-import", "CoreFoundation"]
+                    "--hidden-import", "ApplicationServices", "--hidden-import", "CoreFoundation",
+                    "--hidden-import", "AppKit"]
     command += [str(ROOT / "launcher.py")]
     run(*command)
     if sys.platform == "darwin":
@@ -94,6 +95,8 @@ def main():
                         "LSMinimumSystemVersion": "13.0",
                         "CFBundleDevelopmentRegion": "en",
                         "CFBundleLocalizations": ["en", "zh-Hans"],
+                        # Menu bar only: no Dock tile, no Command-Tab entry unless the user asks for one.
+                        "LSUIElement": True,
                         "NSLocalNetworkUsageDescription": "Discover computers on your local network to share input and files.",
                         "NSInputMonitoringUsageDescription": "Read keyboard and mouse input to switch control between your paired computers.",
                         "NSHighResolutionCapable": True})
