@@ -131,21 +131,20 @@ def _color(p, size):
 
 def _template(p, size):
     # Monochrome menu bar mask: outlined source screen, solid destination with a cut-out pointer.
+    # The menu bar tile is small and square, so a wide composition wastes most of the height.
+    # The screens are drawn tall and nearly edge to edge; the jump trail is left out because it
+    # turns to mush below 32px anyway.
     black = QColor("#000000")
-    p.setPen(_pen(black, 9))
+    p.setPen(_pen(black, 10))
     p.setBrush(Qt.BrushStyle.NoBrush)
-    p.drawRoundedRect(QRectF(8.5, 44.5, 47, 37), 8, 8)
+    p.drawRoundedRect(QRectF(6, 12, 51, 74), 10, 10)
     p.setPen(Qt.PenStyle.NoPen)
     p.setBrush(black)
-    p.drawRoundedRect(QRectF(66, 40, 56, 46), 11, 11)
-    for x in (32, 94):
-        p.drawRoundedRect(QRectF(x - 13, 94, 26, 8), 4, 4)
-    if size >= 32:
-        trail = _jump_trail(QPointF(32, 34), QPointF(84, 32), 22)
-        for i in range(1, 6):
-            p.drawEllipse(trail.pointAtPercent(i / 6), 3.6 + 2 * i / 6, 3.6 + 2 * i / 6)
+    p.drawRoundedRect(QRectF(64, 10, 58, 78), 12, 12)
+    for x in (31, 93):
+        p.drawRoundedRect(QRectF(x - 14, 90, 28, 11), 4, 4)
     p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
-    p.drawPath(pointer(84, 50, 1.25))
+    p.drawPath(pointer(86, 38, 1.4))
 
 
 def app_icon():
