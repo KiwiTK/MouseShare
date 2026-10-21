@@ -1,5 +1,6 @@
 """Input ownership: one physical source, many authenticated peers, explicit flow tokens."""
 import collections
+import os
 import threading
 import time
 import uuid
@@ -14,6 +15,14 @@ def at_edge(side, x, y, bounds, margin=2):
     left, top, width, height = bounds
     return {'left': x <= left+margin, 'right': x >= left+width-1-margin,
             'top': y <= top+margin, 'bottom': y >= top+height-1-margin}[side]
+
+
+def outward(side, dx, dy):
+    return {'left': dx < 0, 'right': dx > 0, 'top': dy < 0, 'bottom': dy > 0}[side]
+
+
+def push_distance(side, dx, dy):
+    return abs(dx) if side in {'left', 'right'} else abs(dy)
 
 
 def entry_point(edge, ratio, bounds, inset=8):
@@ -47,6 +56,7 @@ class Engine:
         self.controller = False
         self.state = 'local'
         self.peer_available = self.paused = self.system_blocked = False
+        self.desktop_live = True
         self.manual_game = settings.get('game_mode')
         self.auto_reason = self.error = ''
         self.route_edge = None
@@ -54,6 +64,7 @@ class Engine:
         self.last_position = self.remote_position = (0, 0)
         self.incoming_edge = 'left'
         self.handoff_side, self.handoff_ratio = settings.get('side'), 0.5
+        self.push = {}
         self.pending_since = self.last_auto = 0
         self.pending_events = []
         self.last_status = None
@@ -70,6 +81,9 @@ class Engine:
         self.condition = threading.Condition()
         self.stopped = False
         self.thread = None
+        self._edge_debug_checked = 0.0
+        self._edge_debug = False
+        self._last_reset = 0.0
 
     @property
     def game(self):
@@ -136,6 +150,9 @@ class Engine:
             message = {**message, 'flow': self.flow}
         if self.session and self.session.send(message):
             return True
+        if self.edge_debug():
+            self.edge_log(f"send-FAILED type={message['type']} state={self.state} "
+                          f"connected={getattr(self.session, 'connected', None)} session={bool(self.session)}")
         if self.state != 'local':
             self.release(True)
         return False
@@ -153,6 +170,9 @@ class Engine:
 
     def release(self, tell_peer=True, *, return_edge=None, return_ratio=None, return_point=None):
         prior, flow = self.state, self.flow
+        if self.edge_debug():
+            self.edge_log(f"release prior={prior} tell={bool(tell_peer)} controller={self.controller} "
+                          f"participants={len(self.participants)} session={bool(self.session)}")
         targets = [self.sessions[k] for k in self.participants if k in self.sessions] if self.controller else []
         if self.session and self.session not in targets:
             targets.append(self.session)
@@ -160,6 +180,7 @@ class Engine:
         self.input_epoch += 1
         self.route_edge = None
         self.edge_target = None
+        self.push.clear()
         self.pending_events.clear()
         self.backend.capture(False)
         self.backend.cursor_hidden(False)
@@ -291,8 +312,74 @@ class Engine:
                 or kind == 'key' and event.get('down') and event.get('key', 0) < 224):
             self.activity_counter += 1
 
+    def reset_peer(self, session=None):
+        """Clear a peer out of a handoff it cannot leave on its own.
+
+        'available' and 'blocked' are the two message types deliberately exempt
+        from the flow token, so they are the only ones that still get through
+        once the two sides disagree about which handoff is current. A peer left
+        behind in 'sending' drops every flow-scoped release we send, so it keeps
+        refusing our handoffs forever while its own cursor stays frozen — which
+        is why sharing only recovered after the layout was re-applied, that
+        message being unscoped too.
+        """
+        target = session or self.session
+        if target is None:
+            return
+        now = self.clock()
+        if now - self._last_reset < 1.0:
+            return
+        self._last_reset = now
+        target.send({'type': 'blocked'})
+        target.send({'type': 'available'})
+
+    def edge_debug(self):
+        """Temporary instrument: log edge decisions while a marker file exists."""
+        now = self.clock()
+        if now - self._edge_debug_checked > 2:
+            self._edge_debug_checked = now
+            self._edge_debug = os.path.exists('/tmp/.mouseshare-edge-debug')
+        return self._edge_debug
+
+    def edge_log(self, line):
+        try:
+            with open('/tmp/mouseshare-edge-debug.log', 'a') as stream:
+                stream.write('%.3f %s\n' % (time.time(), line))
+        except OSError:
+            pass
+
     def edge_candidates(self, position, bounds):
         return [side for side in ('left', 'right', 'top', 'bottom') if at_edge(side, *position, bounds)]
+
+    def edge_margin(self):
+        """How close to the border a sample counts as having arrived (user setting)."""
+        return max(2, int(self.settings.get('edge_margin', 2) or 2))
+
+    def push_total(self, side, position, bounds, dx, dy, now):
+        """Outward travel accumulated over a short window, toward one edge.
+
+        Native backends disagree on what a mouse delta means once the cursor is
+        pinned against the border: Windows raw input keeps the hardware delta,
+        while a clamped pointer reports zero screen displacement. Judging a
+        crossing by "this single event sits on the edge and points outward"
+        therefore drops fast pushes almost every time, because the sample that
+        lands on the border is exactly the one whose delta collapses to zero.
+        Accumulating travel over a short window makes the decision depend on
+        intent instead of on how many samples the pointer happened to produce.
+        """
+        window = max(0.05, float(self.settings.get('push_window', 0.25) or 0.25))
+        amount = push_distance(side, dx, dy)
+        previous = self.push.get(side)
+        total = previous[0] if previous and now - previous[1] <= window else 0.0
+        if outward(side, dx, dy):
+            total += amount
+        elif amount:
+            total = 0.0  # Pulling back cancels the push; a clamped zero delta keeps it alive.
+        if total <= 0:
+            self.push.pop(side, None)
+            return 0.0
+        self.push[side] = (total, now)
+        return total
 
     def edge_ratio(self, side, position, bounds):
         x, y = position
@@ -322,10 +409,19 @@ class Engine:
         self.activity(event)
         kind = event['type']
         if self.state in {'receiving', 'standby'}:
-            if (self.settings.get('reclaim_on_input', True)
-                    and not (kind == 'key' and event.get('key') in MODIFIER_KEYS)):
+            # A locked or secure desktop means someone is at this machine, so
+            # local input always wins there even when reclaim-on-input is off:
+            # otherwise their own pointer stays frozen behind a screen they
+            # cannot see, with no way back but a restart.
+            reclaim = self.settings.get('reclaim_on_input', True) or not self.desktop_live
+            if reclaim and not (kind == 'key' and event.get('key') in MODIFIER_KEYS):
                 self.release(True)
-            if kind != 'move':
+            if self.state != 'local':
+                # Still driven by a peer. Our pointer is not ours to route, and
+                # an edge here belongs to the remote cursor, not to a push of
+                # ours — starting a handoff would mint a second flow token that
+                # the peer does not hold, which strands it in 'sending' (see the
+                # competing 'enter' branch of receive()).
                 return
         if self.state in {'sending', 'pending'}:
             message = {k: v for k, v in event.items() if k not in {'x', 'y'} and not k.startswith('_')}
@@ -350,9 +446,25 @@ class Engine:
             screen = self.backend.screen_info()
             candidates = []
             dx, dy = event.get('_last_dx', event['dx']), event.get('_last_dy', event['dy'])
-            for side in self.edge_candidates(self.last_position, bounds):
-                outward = {'left': dx < 0, 'right': dx > 0, 'top': dy < 0, 'bottom': dy > 0}[side]
-                if not outward:
+            now = self.clock()
+            threshold = max(1.0, float(self.settings.get('push_pixels', 10) or 10))
+            margin = self.edge_margin()
+            x, y = self.last_position
+            trace = []
+            for side in ('left', 'right', 'top', 'bottom'):
+                on_border = at_edge(side, x, y, bounds)
+                # This sample may be the one that carries the pointer over the border.
+                arriving = at_edge(side, x+dx, y+dy, bounds, margin)
+                pushed = self.push_total(side, self.last_position, bounds, dx, dy, now)
+                if not (on_border or arriving):
+                    continue
+                # Classic rule: the border sample itself points outward.
+                heading_out = (on_border and outward(side, dx, dy)
+                               and push_distance(side, dx, dy) >= 1)
+                # Clamped rule: macOS zeroes the displacement of a pointer pinned
+                # against the border, so fall back to the travel that led here.
+                if not (heading_out or pushed >= threshold):
+                    trace.append(f"{side}:on={int(on_border)}arr={int(arriving)}p={pushed:.0f}")
                     continue
                 ratio = self.edge_ratio(side, self.last_position, self.backend.bounds())
                 point = normalized(self.last_position, screen)
@@ -363,6 +475,15 @@ class Engine:
                     available = self.availability.get(key, self.peer_available if key == peer_id(self.session) else False)
                     if available:
                         candidates.append((key, side, ratio, target_ratio, mapped[2] if mapped else None, point))
+                    elif self.edge_debug():
+                        trace.append(f"{side}:target={key[:8]}unavail")
+                elif self.edge_debug():
+                    trace.append(f"{side}:no-target")
+            if self.edge_debug():
+                self.edge_log(f"move state={self.state} pos=({x:.0f},{y:.0f}) d=({dx},{dy}) "
+                              f"bounds={tuple(round(v) for v in bounds)} thr={threshold:.0f} "
+                              f"{' '.join(trace) or 'off-edge'}"
+                              + (f" CAND={[(c[0][:8], c[1]) for c in candidates]}" if candidates else ""))
             target = candidates[0] if len(candidates) == 1 else None
             self.edge_target = target
             if target and self.available and not self.backend.keys and not self.backend.buttons:
@@ -379,6 +500,9 @@ class Engine:
 
     def begin(self, session, side, ratio, *, keep_capture=False, point=None):
         self.handoff_attempts += 1
+        if self.edge_debug():
+            self.edge_log(f"begin -> {peer_id(session)[:8]} side={side} ratio={ratio:.2f} "
+                          f"keys={sorted(self.backend.keys)} buttons={sorted(self.backend.buttons)}")
         if not keep_capture:
             self.input_epoch += 1
             self.flow = uuid.uuid4().hex if supports(session, 'multi-v1') else None
@@ -390,6 +514,7 @@ class Engine:
         self.state, self.pending_since = 'pending', self.clock()
         self.pending_events.clear()
         self.edge_target = None
+        self.push.clear()
         layout = self.layout()
         if layout and supports(session, 'layout-v1'):
             session.send(dict(type='layout', layout=layout))
@@ -412,11 +537,20 @@ class Engine:
                 self.last_screen = screen
                 self.broadcast(dict(type='screen', screen=screen), 'monitors-v1')
                 self.auxiliary(dict(type='screens_changed'))
-            blocked = not self.backend.desktop_active() and not self.settings.get('allow_locked', False)
+            active = self.backend.desktop_active()
+            self.desktop_live = active
+            blocked = not active and not self.settings.get('allow_locked', False)
             if blocked != self.system_blocked:
                 self.system_blocked = blocked
                 self.release(True)
                 self.announce()
+            elif not active and self.state in {'sending', 'pending'}:
+                # "Handoff while locked" only ever means: stay open to being
+                # controlled. Driving another machine from a locked screen is
+                # impossible, and it is the sending state that detaches the
+                # local cursor — so without this, opting in strands the local
+                # pointer and makes the machine refuse every incoming handoff.
+                self.release(True)
             process, fullscreen = self.backend.foreground()
             games = {name.casefold() for name in self.settings.get('game_processes')}
             reason = tr('游戏进程：{p0}', p0=process) if process.casefold() in games else (
@@ -430,6 +564,7 @@ class Engine:
         if self.state == 'pending' and now-self.pending_since > 1.5:
             self.handoff_timeouts += 1
             self.release(True)
+            self.reset_peer()
         self.status()
 
     def health(self):
@@ -463,6 +598,10 @@ class Engine:
     def receive(self, message, session=None):
         session = session or self.session
         kind, key = message['type'], peer_id(session)
+        if self.edge_debug() and kind in {'available', 'blocked', 'enter', 'entered', 'release',
+                                          'return', 'standby', 'route', 'layout', 'screen'}:
+            self.edge_log(f"recv {kind} from={key[:8]} state={self.state} avail={self.available} "
+                          f"peer_avail={self.peer_available} known={self.availability.get(key)}")
         if kind == 'screen' and supports(session, 'monitors-v1'):
             from .displays import validate_screen
             screen = validate_screen(message.get('screen'))
@@ -474,10 +613,17 @@ class Engine:
             return
         if kind in {'available', 'blocked'}:
             self.route_edge = None
+            was = self.availability.get(key)
             self.availability[key] = kind == 'available'
             if session is self.session:
                 self.peer_available = kind == 'available'
             if kind == 'blocked' and (session is self.session or key in self.participants):
+                self.release(True)
+            elif kind == 'available' and was is False and self.state == 'pending':
+                # A peer that was blocked while we were crossing has already
+                # refused the handoff; drop the wait instead of sitting in
+                # 'pending' until the timeout, which used to need a manual
+                # reset (re-applying the layout) before sharing worked again.
                 self.release(True)
             return
         if kind == 'paste_ready':
@@ -494,9 +640,23 @@ class Engine:
                 self.backend.cursor_hidden(False)
                 self.state = 'local'
             if not self.available or self.backend.keys or self.backend.buttons or self.state != 'local':
+                if self.edge_debug():
+                    self.edge_log(f"enter refused peer={key[:8]} state={self.state} available={self.available} "
+                                  f"system_blocked={self.system_blocked} desktop={self.desktop_live} "
+                                  f"keys={sorted(self.backend.keys)} buttons={sorted(self.backend.buttons)}")
                 reply = {'type': 'release'}
                 if message.get('flow'):
                     reply['flow'] = message['flow']
+                if (self.state in {'sending', 'pending'} and session is self.session
+                        and message.get('flow') != self.flow):
+                    # The machine we are driving just tried to hand off to us.
+                    # That handoff of ours can no longer be confirmed, and every
+                    # release we send for it is scoped to a token the peer has
+                    # just replaced, so nothing we say gets through. Without
+                    # dropping it here we would stay captured with a dead local
+                    # pointer while refusing every later handoff, until the
+                    # layout was re-applied by hand.
+                    self.release(True)
                 session.send(reply)
                 if session is self.session and self.state == 'pending' and not self.flow:
                     self.release(True)
@@ -525,7 +685,14 @@ class Engine:
             if ratio is not None and self.controller and layout and not self.flow:
                 mapped = neighbor(layout['nodes'], key, OPPOSITE[self.handoff_side], ratio)
                 ratio = mapped[1] if mapped and mapped[0] == self.local_id else self.handoff_ratio
+            prior = self.state
             self.release(self.controller, return_ratio=ratio)
+            if prior == 'pending':
+                # Our handoff was refused. A receiving side has controller=False,
+                # so release() stays silent — the peer then keeps the handoff it
+                # just declined, holding both its own cursor and every later
+                # attempt. Nudge it out through the unscoped channel.
+                self.reset_peer(session)
         elif kind == 'standby' and self.state == 'receiving':
             self.backend.release_all()
             self.state = 'standby'
@@ -544,6 +711,7 @@ class Engine:
                     self.send(event)
             else:
                 self.send({'type': 'release'})
+                self.reset_peer(session)
         elif self.state == 'receiving' and self.available:
             self.activity(message)
             if kind == 'move':
