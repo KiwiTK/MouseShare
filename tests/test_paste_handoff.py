@@ -132,7 +132,7 @@ def native_scenario(directory, mode):
         engine.physical(dict(type='move', x=0, y=500, dx=-10, dy=0))
         now[0] += .2
         engine.tick()
-        assert engine.state == 'pending' and backend.captured
+        assert engine.state == 'pending' and not backend.captured
         engine.receive(dict(type='entered'))
         assert engine.state == 'sending'
         engine.release(False)

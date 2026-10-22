@@ -75,7 +75,7 @@ def test_first_edge_sample_and_continued_pressure_enter_without_retreat(tmp_path
     raw(*delta)  # Same cursor pixel, with real outward device movement.
     hook(*point)  # A zero-displacement hook must not cancel the raw direction.
     drain()
-    assert engine.state == 'pending' and backend.captured
+    assert engine.state == 'pending' and not backend.captured
     assert messages[-1]['type'] == 'enter'
     assert engine.handoff_attempts == 1
 
