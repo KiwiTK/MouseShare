@@ -355,8 +355,6 @@ class WindowsBackend(BaseBackend):
                     if key and self.physical({"type": "key", "key": key,
                                               "down": msg in (0x0100, 0x0104)}):
                         return 1
-                    if key is None and self.captured:
-                        return 1
             except Exception:
                 self.captured = False
                 self.emit({"type": "command", "action": "panic"})

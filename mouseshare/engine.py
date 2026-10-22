@@ -538,7 +538,11 @@ class Engine:
             self.flow = uuid.uuid4().hex if supports(session, 'multi-v1') else None
             self.controller = True
             self.participants = {peer_id(session)}
-            self.backend.capture(True)
+            # Capture belongs to a confirmed handoff, not to the attempt. While
+            # 'pending' the local machine keeps its own mouse and keyboard, so a
+            # refused or slow handoff can never freeze this desktop. A capture
+            # left over from an earlier attempt is dropped here too.
+            self.backend.capture(False)
         self.session = session
         self.peer_available = self.availability.get(peer_id(session), self.peer_available)
         self.state, self.pending_since = 'pending', self.clock()
@@ -557,6 +561,18 @@ class Engine:
     def tick(self):
         now = self.clock()
         self.last_tick = now
+        if self.backend.captured and (self.state not in {'sending', 'pending'} or not self.available):
+            # A capture that outlived its handoff swallows every local mouse and
+            # keyboard event, which reads as a completely dead desktop: nothing
+            # can be clicked or typed, and any application opened meanwhile
+            # looks like it failed to start. Drop it the moment the engine no
+            # longer claims a confirmed handoff, or sharing became unavailable
+            # (permission revoked, paused, locked, game mode).
+            if self.state == 'local':
+                self.backend.capture(False)
+                self.backend.cursor_hidden(False)
+            else:
+                self.release(True)
         if now-self.last_auto > 0.5:
             self.last_auto = now
             if self.state == 'local' and (self.backend.keys or self.backend.buttons):
@@ -737,6 +753,7 @@ class Engine:
             if self.state == 'pending' and self.available:
                 self.handoff_durations.append(round(max(0, self.clock()-self.pending_since)*1000, 3))
                 self.state = 'sending'
+                self.backend.capture(True)
                 buffered, self.pending_events = self.pending_events, []
                 for event in buffered:
                     self.send(event)

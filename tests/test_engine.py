@@ -50,11 +50,12 @@ def hit_edge(engine, now):
 def test_handoff_waits_for_ack_then_routes_and_returns(tmp_path):
     engine, now = setup(tmp_path)
     hit_edge(engine, now)
-    assert engine.state == "pending" and engine.backend.captured
+    # An unconfirmed handoff must not swallow this machine's own input.
+    assert engine.state == "pending" and not engine.backend.captured
     engine.physical({"type": "key", "key": 4, "down": True})
     assert engine.session.messages[-1]["type"] == "enter"
     engine.receive({"type": "entered"})
-    assert engine.state == "sending"
+    assert engine.state == "sending" and engine.backend.captured
     assert engine.session.messages[-1] == {"type": "key", "key": 4, "down": True}
     engine.receive({"type": "return"})
     assert engine.state == "local" and not engine.backend.captured
@@ -65,8 +66,9 @@ def test_keyboard_only_switch_establishes_ownership_and_reclaims_safely(tmp_path
     engine, now = setup(tmp_path)
     engine.backend.keys = {224, 226, 44}
     engine.handle_command(dict(action='switch_peer'))
-    assert engine.state == 'pending' and engine.backend.captured
+    assert engine.state == 'pending' and not engine.backend.captured
     engine.receive(dict(type='entered'))
+    assert engine.backend.captured
     engine.physical(dict(type='key', key=4, down=True))
     engine.physical(dict(type='key', key=4, down=False))
     assert engine.session.messages[-2:] == [dict(type='key', key=4, down=True), dict(type='key', key=4, down=False)]
@@ -346,7 +348,7 @@ def test_released_input_allows_immediate_crossing_without_leaving_edge(tmp_path,
     engine.physical(move)
     now[0] += .2
     engine.tick()
-    assert engine.state == 'pending' and engine.backend.captured
+    assert engine.state == 'pending' and not engine.backend.captured
 
 
 @pytest.mark.parametrize('y', [0, 1079])
@@ -366,7 +368,7 @@ def test_return_rearms_while_moving_along_unconnected_top_or_bottom_edge(tmp_pat
     engine.physical(dict(type='move', x=1919, y=y, dx=20, dy=0))
     now[0] += .2
     engine.tick()
-    assert engine.state == 'pending' and engine.backend.captured
+    assert engine.state == 'pending' and not engine.backend.captured
 
 
 def test_local_health_counts_explain_blockers_without_logging_keys_or_pointer_paths(tmp_path):

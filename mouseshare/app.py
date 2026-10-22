@@ -1010,6 +1010,10 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         if QSystemTrayIcon.isSystemTrayAvailable() and not self.closed:
+            # Hiding the window must never leave the peer holding this
+            # machine's mouse and keyboard behind it.
+            if getattr(self, 'engine', None):
+                self.engine.command("panic")
             self.hide()
             self.tray.showMessage(tr('MouseShare 正在后台运行'), tr('从托盘菜单退出；') + shortcut('panic') + tr(' 随时收回键鼠。'))
             event.ignore()
