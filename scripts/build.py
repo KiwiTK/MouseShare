@@ -15,8 +15,12 @@ DIST = ROOT / "dist"
 ASSETS = ROOT / "build/icons"
 
 
-def run(*args):
-    subprocess.run([str(arg) for arg in args], cwd=ROOT, check=True)
+def run(*args, timeout=None):
+    subprocess.run([str(arg) for arg in args], cwd=ROOT, check=True, timeout=timeout)
+
+
+def log(message):
+    print(f"[build] {message}", flush=True)
 
 
 def make_icons():
@@ -49,19 +53,36 @@ def make_icons():
 
 
 # Qt plug-ins this app never loads: no touch input, no QNetworkInformation, no
-# QSslSocket (TLS runs on cryptography), and image formats nobody copies.
-DROP_QT = frozenset({'libqtuiotouchplugin', 'libqapplenetworkinformation', 'libqcertonlybackend',
-                     'libqopensslbackend', 'libqsecuretransportbackend', 'libqico', 'libqtga',
-                     'libqwbmp', 'libqsvg', 'libqsvgicon', 'QtSvg'})
+# QSslSocket backends (TLS runs on stdlib ssl), and image formats nobody copies.
+# Names are normalised through plugin_stem() so macOS "libqsvg.dylib", Windows
+# "qsvg.dll" and Linux "libQt6Svg.so" all match.
+DROP_QT = frozenset({'qtuiotouchplugin', 'qapplenetworkinformation', 'qcertonlybackend',
+                     'qopensslbackend', 'qsecuretransportbackend', 'qschannelbackend',
+                     'qtga', 'qwbmp', 'qsvg', 'qsvgicon', 'qtsvg'})
+if sys.platform == "win32":
+    # Windows loads window and file icons through the ico plug-in; keep it.
+    DROP_QT -= {'qico'}
+else:
+    DROP_QT |= {'qico'}
+
+
+def plugin_stem(name):
+    stem = name.split('.')[0].lower()
+    if stem.startswith('lib'):
+        stem = stem[3:]
+    if stem.startswith('qt6'):
+        stem = 'qt' + stem[3:]
+    return stem
 
 
 def prune(bundle):
     """Drop Qt plug-ins and libraries before the bundle is signed and smoke tested."""
-    for pyside in (bundle / 'Contents' / 'Frameworks' / 'PySide6', bundle / 'PySide6'):
+    for pyside in (bundle / 'Contents' / 'Frameworks' / 'PySide6',
+                   bundle / 'PySide6', bundle / '_internal' / 'PySide6'):
         if not pyside.is_dir():
             continue
         for path in sorted(pyside.rglob('*')):
-            if path.name.split('.')[0] not in DROP_QT:
+            if plugin_stem(path.name) not in DROP_QT:
                 continue
             if path.is_dir() and not path.is_symlink():
                 shutil.rmtree(path, ignore_errors=True)
@@ -127,18 +148,24 @@ def licenses(destination):
 
 def main():
     os.chdir(ROOT)
+    log("rendering icons")
     make_icons()
     command = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onedir", "--windowed",
-               "--name", "MouseShare", "--noupx", "--strip", "--exclude-module", "tkinter",
+               "--name", "MouseShare", "--noupx", "--exclude-module", "tkinter",
                "--exclude-module", "unittest", "--icon", str(ASSETS / (
                    "MouseShare.icns" if sys.platform == "darwin" else "MouseShare.ico")),
                "--collect-submodules", "mouseshare", "--collect-data", "mouseshare"]
     if sys.platform == "darwin":
-        command += ["--osx-bundle-identifier", "io.github.makesail.mouseshare",
+        # --strip is POSIX only: on Windows PyInstaller hands MSVC runtime DLLs
+        # to MinGW's strip, which rewrites them into images the loader rejects,
+        # and a windowed exe then waits forever behind an error dialog in CI.
+        command += ["--strip", "--osx-bundle-identifier", "io.github.makesail.mouseshare",
                     "--hidden-import", "ApplicationServices", "--hidden-import", "CoreFoundation",
                     "--hidden-import", "AppKit"]
     command += [str(ROOT / "launcher.py")]
-    run(*command)
+    log("running PyInstaller")
+    run(*command, timeout=1200)
+    log("pruning unused Qt plugins")
     prune(DIST / ("MouseShare.app" if sys.platform == "darwin" else "MouseShare"))
     if sys.platform == "darwin":
         bundle = DIST / "MouseShare.app"
@@ -168,10 +195,11 @@ def main():
             strings = '\n'.join(f'{json.dumps(k)} = {json.dumps(v, ensure_ascii=False)};' for k, v in values.items())
             (localized / 'InfoPlist.strings').write_text(strings+'\n', encoding='utf-16')
         licenses(bundle / "Contents/Resources/licenses")
+        log("codesigning and smoke testing")
         run("codesign", "--force", "--deep", "--sign", "-", bundle)
         run("codesign", "--verify", "--deep", "--strict", bundle)
-        run(bundle / "Contents/MacOS/MouseShare", "--smoke-test")
-        run(bundle / "Contents/MacOS/MouseShare", "--drop-smoke-test")
+        run(bundle / "Contents/MacOS/MouseShare", "--smoke-test", timeout=300)
+        run(bundle / "Contents/MacOS/MouseShare", "--drop-smoke-test", timeout=300)
         stage = ROOT / "build/dmg"
         shutil.rmtree(stage, ignore_errors=True)
         stage.mkdir(parents=True)
@@ -184,17 +212,20 @@ def main():
             "-ov", "-format", "UDZO", target)
     elif sys.platform == "win32":
         licenses(DIST / "MouseShare/licenses")
-        run(DIST / "MouseShare/MouseShare.exe", "--smoke-test")
-        run(DIST / "MouseShare/MouseShare.exe", "--drop-smoke-test")
+        log("smoke testing the bundled exe")
+        run(DIST / "MouseShare/MouseShare.exe", "--smoke-test", timeout=300)
+        run(DIST / "MouseShare/MouseShare.exe", "--drop-smoke-test", timeout=300)
+        log("compiling the Inno Setup installer")
         compiler = Path(r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe")
-        run(compiler, ROOT / "packaging/windows.iss")
+        run(compiler, ROOT / "packaging/windows.iss", timeout=600)
         shutil.copyfile(ROOT / "docs/INSTALL-Windows.txt", DIST / "MouseShare/INSTALL.txt")
         shutil.make_archive(str(DIST / "MouseShare-0.7.6-Windows-x64-portable"), "zip",
                             DIST, "MouseShare")
     elif sys.platform.startswith("linux"):
         licenses(DIST / "MouseShare/licenses")
-        run(DIST / "MouseShare/MouseShare", "--smoke-test")
-        run(DIST / "MouseShare/MouseShare", "--drop-smoke-test")
+        log("smoke testing the bundled binary")
+        run(DIST / "MouseShare/MouseShare", "--smoke-test", timeout=300)
+        run(DIST / "MouseShare/MouseShare", "--drop-smoke-test", timeout=300)
         sys.path.insert(0, str(ROOT / "packaging"))
         from linux import build_linux
         build_linux(ROOT, DIST, "0.7.6")
