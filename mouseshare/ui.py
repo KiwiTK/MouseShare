@@ -83,9 +83,6 @@ QPushButton#quiet[tone="warning"] { color: @WARN_INK@; font-weight: 600; }
 QPushButton#link { background: transparent; border: 0; color: @ACCENT@; padding: 7px 2px; font-weight: 500; }
 QPushButton#link:hover { color: @ACCENT_PRESS@; }
 QPushButton#link:checked { color: @INK_2@; }
-QPushButton#game { padding: 9px 16px; font-weight: 600; }
-QPushButton#game:checked { background: @WARN_SOFT@; border-color: @WARN_LINE@; color: @WARN_INK@; }
-QPushButton#game:checked:hover { background: #fbe8c8; }
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox { background: #fbfcfc; color: @INK@;
     border: 1px solid @LINE_STRONG@; border-radius: 8px; padding: 8px 10px; min-height: 18px;
     selection-background-color: #bfe6dd; selection-color: @INK@; }
@@ -327,7 +324,6 @@ class ScreenMap(QWidget):
         self.peer_os = ""
         self.connected = False
         self.blocked = False
-        self.game = False
         self.owner = "local"
         self.setMinimumHeight(190)
         self.setAccessibleName(tr('屏幕位置示意'))
@@ -446,7 +442,7 @@ class ScreenMap(QWidget):
             p.setPen(QPen(QColor(ring), 1.5))
             p.setBrush(QColor(SURFACE))
             p.drawEllipse(node, 15, 15)
-            glyph = "link" if live else "lock" if self.game else "pause"
+            glyph = "link" if live else "pause"
             line_icon(glyph, ring, 16).paint(p, QRectF(node.x() - 8, node.y() - 8, 16, 16).toRect())
         # Names: under each monitor, or beside each screen when stacked.
         local_sub = tr('{p0} · 本机', p0=self.local_os)

@@ -8,13 +8,11 @@ Share a keyboard, mouse, clipboard and files between **Windows, macOS and Linux 
 
 **The current public preview is v0.7.4.** The v0.7.5 source fixes missed Windows edge crossings on the first sample or while pushing against a clamped edge. Its candidate packages remain in a release draft while GitHub's aggregate build status is being reconciled. See the [acceptance record](docs/ACCEPTANCE.md#v075-windows-碰边漏触发离开后重试才生效).
 
-Automated tests cover authenticated two/three-node TLS peers and ownership recovery. Real desktop interaction, OS permissions and individual games require acceptance on your devices. Linux is tested with isolated Xvfb displays; no physical Linux computer was available.
+Automated tests cover authenticated two/three-node TLS peers and ownership recovery. Real desktop interaction and OS permissions require acceptance on your devices. Linux is tested with isolated Xvfb displays; no physical Linux computer was available.
+
+The interface is Simplified Chinese only.
 
 ![English connection UI with isolated sample devices](docs/screenshot.en.png)
-
-## Language
-
-The app supports **English and Simplified Chinese** on Windows, macOS and Linux. It follows the system language on first launch (Chinese locales use Simplified Chinese; other locales use English). Choose **Preferences → Local preferences → Language** to override it. Changes take effect immediately and are remembered on this computer, while connections, transfers and unsaved settings remain in place. Help opens the matching README. macOS system permission prompts follow the system language.
 
 ## Install
 
@@ -68,20 +66,13 @@ On **Wayland**, this release offers file transfer and foreground clipboard butto
 
 If discovery is unavailable, expand Connect by IP and enter the other computer's IPv4 address. Allow **UDP 24871 and TCP 24872** on your trusted LAN. The Windows installer offers inbound rules restricted to the local subnet on private networks. Guest Wi-Fi isolation, VPNs, different subnets and firewalls can affect discovery.
 
-## Game mode and recovery
+## Recovery
 
 | Action | Windows | macOS | Linux X11 |
 | --- | --- | --- | --- |
-| Toggle manual game mode | `Ctrl+Alt+F12` | `Control+Option+F12` (Fn may be needed) | `Ctrl+Alt+Shift+G` |
 | Reclaim input immediately | `Ctrl+Alt+Esc` | `Control+Option+Esc` | `Ctrl+Alt+Shift+Esc` |
 
-Game mode keeps physical input on this computer and pauses sharing in both directions, including clipboard/files. Manual mode persists across restarts. Controls are available in the app and tray/menu bar. Linux shortcuts avoid Ctrl+Alt+F-key virtual-terminal switching.
-
-Windows automatically protects foreground fullscreen windows and named game executables. The defaults include Delta Force, League of Legends/TFT, VALORANT, CS2, PUBG, Apex, Fortnite, Overwatch, NARAKA, Genshin Impact, Honkai: Star Rail, Zenless Zone Zero, Marvel Rivals, Black Myth: Wukong, ARC Raiders, Battlefield 6 and more. See the [complete editable catalog](docs/GAMES.md).
-
-The original three-entry stock list upgrades automatically. Custom lists are preserved; **Add popular games** adds missing popular defaults without deleting your entries. Save to apply. Names are exact foreground executable basenames, matched case-insensitively. Launchers and generic Java processes are excluded.
-
-Fullscreen videos also trigger fullscreen protection. You can disable that option while retaining game-process detection. macOS and Linux currently offer manual game mode. If an automatic condition remains active, turning off manual mode keeps protection enabled and shows the reason. Individual anticheat systems and games still require device testing.
+Pausing keeps physical input on this computer and stops sharing in both directions, including clipboard/files. The switch persists across restarts. Controls are available in the app and tray/menu bar. Individual anticheat systems and applications still require device testing.
 
 Physical input on a receiving computer reclaims control. Holding a key or mouse button prevents accidental edge switching. Disconnect or heartbeat timeout releases remote held inputs after about 3.5 seconds.
 
@@ -94,7 +85,7 @@ Transfers show progress, speed and estimated time, support cancellation/re-send,
 - File batches: up to **100 GiB / 4096 entries**.
 - Text and HTML combined: **2 MiB**. Entire clipboard payload: **8 MiB**. Images: **16 million pixels**.
 - Clipboard content from before connection stays local; copy again to send. Received content is marked to avoid loops. Marked private password-manager formats are skipped; ordinary text follows your sharing settings.
-- Game mode, pause, lock and disconnect stop sharing. Incomplete file transfers are cleaned up. Re-send starts from the beginning.
+- Pause, lock and disconnect stop sharing. Incomplete file transfers are cleaned up. Re-send starts from the beginning.
 - Native continuous file dragging across screen edges remains future work. The current flow uses the glass drop surface, transfer, then local drag-out. macOS and Windows 11 request native compositor blur; other desktops and reduced-transparency settings use a dark translucent fallback. No screen capture or Screen Recording permission is required.
 - Content sharing is compatible with v0.3.0+; Linux requires v0.4.0+; multi-computer layouts and on-demand file paste require v0.5.0+ on participating devices. Wayland uses explicit foreground clipboard actions, and received files are copied through the record's Copy Files button.
 
@@ -117,7 +108,7 @@ Closing the window keeps the app in the tray/menu bar where available. Login sta
 
 Physical keyboard positions use USB HID IDs; the receiver's layout and IME produce text. The Windows key maps to macOS Command, Ctrl to Control. Enable Swap Ctrl and Command/Win on the receiver to change this behavior. On X11, the standard evdev/XKB keycode layout is used; relative mice and standard wheels are covered. Tablets, custom keycode maps and specific gaming drivers need acceptance.
 
-Each instance connects to up to seven peers. Every physical display is shown, with negative coordinates and offset displays supported. Displays on the same computer preserve the system arrangement and move as a group. Change their internal arrangement in system display settings. For existing layouts, Reset arrangement and Save adopts the new overall aspect ratio. The source cursor hides during forwarding and restores on return or failure. The receiver has an optional colored pointer ring. Independently dragging each monitor of the same computer, continuous native cross-computer file dragging, resumable transfers, video streaming and Windows ARM packages remain future work. Login/lock screens, UAC secure desktops, macOS Secure Input and elevated target applications can restrict injection. See [Microsoft's SendInput restrictions](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput).
+Each instance connects to up to seven peers. Every physical display is shown, with negative coordinates and offset displays supported. Displays on the same computer preserve the system arrangement and move as a group. Change their internal arrangement in system display settings. For existing layouts, Reset arrangement and Save adopts the new overall aspect ratio. The source cursor hides during forwarding and restores on return or failure. Independently dragging each monitor of the same computer, continuous native cross-computer file dragging, resumable transfers, video streaming and Windows ARM packages remain future work. Login/lock screens, UAC secure desktops, macOS Secure Input and elevated target applications can restrict injection. See [Microsoft's SendInput restrictions](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput).
 
 ![Draggable layout with sample devices](docs/layout.en.png)
 
@@ -155,7 +146,7 @@ python scripts/build.py
 
 Build on the target OS/architecture. Windows needs Inno Setup 6, macOS needs command-line tools and `iconutil`, and Linux needs `dpkg-deb` plus X11/Qt libraries. GitHub Actions builds five targets, tests packages and installers, and runs Linux input checks in isolated Xvfb displays. Releases include SHA-256 checksums.
 
-`engine.py` manages ownership/recovery; `network.py` manages discovery/TLS; `security.py` handles pairing; `input/` contains Win32/Quartz/XInput2 backends; `app.py` provides the UI.
+`engine.py` manages ownership/recovery; `network.py` manages discovery/TLS; `security.py` handles pairing; `input/` contains Win32/Quartz/XInput2 backends; `app.py` provides the UI; `instance.py` keeps a single instance per computer.
 
 MIT. See [THIRD_PARTY.md](THIRD_PARTY.md) and the packaged `licenses` directory for dependencies.
 

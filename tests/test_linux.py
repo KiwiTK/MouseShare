@@ -39,9 +39,11 @@ def test_hid_positions_and_linux_shortcuts_avoid_virtual_terminal_keys():
     for key in [224, 226, 69]:
         backend.physical(dict(type='key', key=key, down=True))
     assert not any(e.get('type') == 'command' for e in events)
+    # Game mode is gone, so the old Ctrl+Alt+Shift+G binding is an ordinary key again.
+    assert 'game' not in backend.shortcuts.values()
     backend.physical(dict(type='key', key=225, down=True))
     backend.physical(dict(type='key', key=10, down=True))
-    assert events[-1] == {'type': 'command', 'action': 'game'}
+    assert events[-1]['type'] == 'key'
     backend.physical(dict(type='key', key=41, down=True))
     assert events[-1] == {'type': 'command', 'action': 'panic'}
 

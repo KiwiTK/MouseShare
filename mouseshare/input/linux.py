@@ -176,7 +176,7 @@ def raw_axes(raw):
 
 
 class LinuxBackend(BaseBackend):
-    shortcuts = {41: 'panic', 10: 'game', 6: 'share_copy', 25: 'share_paste', 44: 'switch_peer'}
+    shortcuts = {41: 'panic', 6: 'share_copy', 25: 'share_paste', 44: 'switch_peer'}
     shortcut_modifiers = (CTRL, ALT, {225, 229})
     def __init__(self, emit):
         super().__init__(emit)

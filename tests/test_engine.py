@@ -10,14 +10,9 @@ class FakeBackend(NullBackend):
         super().__init__(lambda event: True)
         self.running = True
         self.moves = []
-        self.process = ""
-        self.fullscreen = False
 
     def move(self, x, y):
         self.moves.append((x, y))
-
-    def foreground(self):
-        return self.process, self.fullscreen
 
 
 class FakeSession:
@@ -74,7 +69,7 @@ def test_keyboard_only_switch_establishes_ownership_and_reclaims_safely(tmp_path
     assert engine.session.messages[-2:] == [dict(type='key', key=4, down=True), dict(type='key', key=4, down=False)]
     engine.handle_command(dict(action='switch_peer'))
     assert engine.state == 'local' and not engine.backend.captured
-    engine.manual_game = True
+    engine.handle_command(dict(action='pause'))
     engine.handle_command(dict(action='switch_peer'))
     assert engine.state == 'local'
 
@@ -113,36 +108,6 @@ def test_fast_pending_motion_does_not_skip_target_entry_edge(tmp_path, side, pos
     source.physical({"type": "move", "x": 960, "y": 540, "dx": dx, "dy": dy})
     target.receive(source.session.messages[-1])
     assert target.remote_position == (entry[0] + dx * 1.5, entry[1] + dy * 1.5)
-
-
-def test_game_mode_blocks_both_directions_and_releases_modifiers(tmp_path):
-    engine, now = setup(tmp_path)
-    engine.receive({"type": "enter", "edge": "left", "position": 0.5})
-    engine.receive({"type": "key", "key": 225, "down": True})
-    engine.receive({"type": "button", "button": 1, "down": True})
-    assert engine.backend.injected_keys == {225}
-    engine.handle_command({"action": "game"})
-    assert engine.state == "local" and engine.game
-    assert not engine.backend.injected_keys and not engine.backend.injected_buttons
-    hit_edge(engine, now)
-    assert engine.state == "local"
-    engine.receive({"type": "enter", "edge": "left", "position": 0.5})
-    assert engine.state == "local"
-
-
-def test_auto_fullscreen_and_game_process(tmp_path):
-    engine, now = setup(tmp_path)
-    engine.backend.fullscreen = True
-    engine.tick()
-    assert engine.game
-    engine.backend.fullscreen = False
-    now[0] += 1
-    engine.tick()
-    assert not engine.game
-    engine.backend.process = "LEAGUE OF LEGENDS.EXE"
-    now[0] += 1
-    engine.tick()
-    assert engine.game
 
 
 def test_held_input_blocks_switch_and_release_needs_fresh_outward_movement(tmp_path):

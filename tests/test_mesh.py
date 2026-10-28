@@ -58,7 +58,7 @@ def test_three_node_chain_returns_with_one_capture_and_clears_all_cursors(mesh):
     assert not a.flow
 
 
-@pytest.mark.parametrize('finish', ['game', 'panic', 'disconnect'])
+@pytest.mark.parametrize('finish', ['panic', 'disconnect'])
 def test_any_participant_failure_restores_entire_chain(mesh, finish):
     (a, b, c), _, _ = mesh
     enter(a, b)
@@ -74,7 +74,7 @@ def test_any_participant_failure_restores_entire_chain(mesh, finish):
 def test_offline_or_blocked_neighbor_does_not_jump_over_screen_and_stale_flow_is_ignored(mesh):
     (a, b, c), _, _ = mesh
     enter(a, b)
-    c.command('game')
+    c.command('pause')
     wait_for(lambda: not a.availability[c.local_id])
     b.session.send(dict(type='route', flow=b.flow, edge='right', position=.5, target=c.local_id))
     b.session.send(dict(type='release', flow='0'*32))

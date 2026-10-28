@@ -1,4 +1,4 @@
-"""Exercise two real TLS engines with simulated native devices, including a mid-session game lock."""
+"""Exercise two real TLS engines with simulated native devices, including a mid-session pause."""
 import time
 
 from mouseshare.config import Settings
@@ -34,7 +34,7 @@ def make_node(path, name, side):
     return engine, network
 
 
-def test_two_engines_route_input_and_revoke_on_game_mode(tmp_path):
+def test_two_engines_route_input_and_revoke_on_pause(tmp_path):
     source, a = make_node(tmp_path / "a", "Windows", "right")
     target, b = make_node(tmp_path / "b", "Mac", "left")
     try:
@@ -46,11 +46,11 @@ def test_two_engines_route_input_and_revoke_on_game_mode(tmp_path):
         source.enqueue({"type": "button", "button": 1, "down": True})
         wait_for(lambda: target.backend.injected_keys == {225} and target.backend.injected_buttons == {1})
         assert not source.backend.injected_keys
-        target.command("game")
+        target.command("pause")
         wait_for(lambda: source.state == target.state == "local" and not source.peer_available)
-        assert target.game and not target.backend.injected_keys and not target.backend.injected_buttons
+        assert target.paused and not target.backend.injected_keys and not target.backend.injected_buttons
         assert not source.backend.captured
-        target.command("game")
+        target.command("pause")
         wait_for(lambda: source.peer_available)
         source.backend.physical({"type": "key", "key": 225, "down": False})
         source.backend.physical({"type": "button", "button": 1, "down": False})

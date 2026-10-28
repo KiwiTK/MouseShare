@@ -48,6 +48,59 @@ def make_icons():
         run("iconutil", "-c", "icns", iconset, "-o", ASSETS / "MouseShare.icns")
 
 
+# Qt plug-ins this app never loads: no touch input, no QNetworkInformation, no
+# QSslSocket (TLS runs on cryptography), and image formats nobody copies.
+DROP_QT = frozenset({'libqtuiotouchplugin', 'libqapplenetworkinformation', 'libqcertonlybackend',
+                     'libqopensslbackend', 'libqsecuretransportbackend', 'libqico', 'libqtga',
+                     'libqwbmp', 'libqsvg', 'libqsvgicon', 'QtSvg'})
+
+
+def prune(bundle):
+    """Drop Qt plug-ins and libraries before the bundle is signed and smoke tested."""
+    for pyside in (bundle / 'Contents' / 'Frameworks' / 'PySide6', bundle / 'PySide6'):
+        if not pyside.is_dir():
+            continue
+        for path in sorted(pyside.rglob('*')):
+            if path.name.split('.')[0] not in DROP_QT:
+                continue
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path, ignore_errors=True)
+            else:
+                path.unlink(missing_ok=True)
+    # Dropping a framework leaves the bundle's top-level aliases dangling, and
+    # codesign --deep fails on a symlink whose target no longer exists.
+    for path in sorted(bundle.rglob('*')):
+        if path.is_symlink() and not path.exists():
+            path.unlink(missing_ok=True)
+
+
+# Big-endian and little-endian 32/64-bit Mach-O magic numbers.
+MACHO = {b'\xcf\xfa\xed\xfe', b'\xfe\xed\xfa\xcf', b'\xce\xfa\xed\xfe', b'\xfe\xed\xfa\xce'}
+
+
+def strip_libraries(bundle):
+    """Strip local symbols from every bundled Mach-O image.
+
+    PyInstaller's --strip only touches the binaries it copied into its own
+    cache, so the PySide6 bindings and cryptography arrive untouched. Runs
+    before codesign because stripping invalidates an existing signature.
+    """
+    for path in sorted(bundle.rglob('*')):
+        if path.is_symlink() or not path.is_file():
+            continue
+        # The launcher carries the embedded archive in its own Mach-O image;
+        # stripping it leaves an app that cannot open its payload.
+        if 'Contents/MacOS' in path.as_posix() or path.parent.name == 'MacOS':
+            continue
+        try:
+            with path.open('rb') as stream:
+                magic = stream.read(4)
+        except OSError:
+            continue
+        if magic in MACHO:
+            subprocess.run(["strip", "-x", str(path)], capture_output=True)
+
+
 def licenses(destination):
     destination.mkdir(parents=True, exist_ok=True)
     report = []
@@ -76,7 +129,7 @@ def main():
     os.chdir(ROOT)
     make_icons()
     command = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onedir", "--windowed",
-               "--name", "MouseShare", "--noupx", "--exclude-module", "tkinter",
+               "--name", "MouseShare", "--noupx", "--strip", "--exclude-module", "tkinter",
                "--exclude-module", "unittest", "--icon", str(ASSETS / (
                    "MouseShare.icns" if sys.platform == "darwin" else "MouseShare.ico")),
                "--collect-submodules", "mouseshare", "--collect-data", "mouseshare"]
@@ -86,12 +139,14 @@ def main():
                     "--hidden-import", "AppKit"]
     command += [str(ROOT / "launcher.py")]
     run(*command)
+    prune(DIST / ("MouseShare.app" if sys.platform == "darwin" else "MouseShare"))
     if sys.platform == "darwin":
         bundle = DIST / "MouseShare.app"
+        strip_libraries(bundle)
         import plistlib
         info = bundle / "Contents/Info.plist"
         content = plistlib.loads(info.read_bytes())
-        content.update({"CFBundleShortVersionString": "0.7.5", "CFBundleVersion": "23",
+        content.update({"CFBundleShortVersionString": "0.7.6", "CFBundleVersion": "24",
                         "LSMinimumSystemVersion": "13.0",
                         "CFBundleDevelopmentRegion": "en",
                         "CFBundleLocalizations": ["en", "zh-Hans"],
@@ -123,7 +178,7 @@ def main():
         shutil.copytree(bundle, stage / bundle.name, symlinks=True)
         (stage / "Applications").symlink_to("/Applications")
         shutil.copyfile(ROOT / "docs/INSTALL-macOS.txt", stage / "INSTALL.txt")
-        target = DIST / f"MouseShare-0.7.5-macOS-{platform.machine()}.dmg"
+        target = DIST / f"MouseShare-0.7.6-macOS-{platform.machine()}.dmg"
         target.unlink(missing_ok=True)
         run("hdiutil", "create", "-volname", "MouseShare", "-srcfolder", stage,
             "-ov", "-format", "UDZO", target)
@@ -134,7 +189,7 @@ def main():
         compiler = Path(r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe")
         run(compiler, ROOT / "packaging/windows.iss")
         shutil.copyfile(ROOT / "docs/INSTALL-Windows.txt", DIST / "MouseShare/INSTALL.txt")
-        shutil.make_archive(str(DIST / "MouseShare-0.7.5-Windows-x64-portable"), "zip",
+        shutil.make_archive(str(DIST / "MouseShare-0.7.6-Windows-x64-portable"), "zip",
                             DIST, "MouseShare")
     elif sys.platform.startswith("linux"):
         licenses(DIST / "MouseShare/licenses")
@@ -142,7 +197,7 @@ def main():
         run(DIST / "MouseShare/MouseShare", "--drop-smoke-test")
         sys.path.insert(0, str(ROOT / "packaging"))
         from linux import build_linux
-        build_linux(ROOT, DIST, "0.7.5")
+        build_linux(ROOT, DIST, "0.7.6")
     else:
         raise RuntimeError("Unsupported build platform")
 

@@ -1,3 +1,15 @@
+MouseShare v0.7.6 · 精简功能与瘦身 / Trimmed features, smaller packages
+
+- 删除游戏模式：自动全屏／游戏进程检测、进程名单页面与 F12 快捷键一并移除；收回键鼠的 Esc 快捷键保持不变。
+- 删除界面里的「使用说明」按钮，以及接收端的远端光标光圈（光标识别）。
+- 界面固定为简体中文，删除英文文案与语言切换设置。
+- 打包瘦身：启用 strip，并移除从未加载的 Qt 插件（触摸输入、QNetworkInformation、QSslSocket 后端、SVG 与部分图像格式）。
+- 附带修复开机时可能同时启动两个实例的问题：改用原子 PID 锁文件判定唯一实例。
+
+Removed game mode (automatic fullscreen/game-process detection, the process list page and its F12 shortcut); the Esc shortcut that reclaims input is unchanged. Removed the in-app help button and the remote pointer ring on the receiving side. The interface is now Simplified Chinese only; English strings and the language switch are gone. Packages are smaller after enabling strip and dropping Qt plug-ins that are never loaded. Also fixes a rare double launch at login by switching the single-instance check to an atomic PID lock file.
+
+---
+
 MouseShare v0.7.5 · 修复 Windows 碰边漏触发 / Fix missed Windows edge crossings
 
 - 修复 Windows 返回后首次快速碰边被判为零移动、持续推动边缘也无法进入另一台电脑的问题。

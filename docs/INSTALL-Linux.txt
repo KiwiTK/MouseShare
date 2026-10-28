@@ -1,11 +1,11 @@
-MouseShare 0.7.5 — Linux
+MouseShare 0.7.6 — Linux
 
 x64: Ubuntu 22.04+ / Debian 12+ (glibc 2.35+).
 ARM64: Ubuntu 24.04+ / Debian 13+ (glibc 2.39+).
 Use an X11 desktop for full input sharing.
 
 Recommended installation:
-  sudo apt install ./MouseShare-0.7.5-Linux-x64.deb
+  sudo apt install ./MouseShare-0.7.6-Linux-x64.deb
   ARM64: replace x64 with arm64.
 
 Portable archive:
@@ -18,8 +18,8 @@ Use an X11 / Xorg session for full input sharing. On Wayland, log out and select
 Ubuntu on Xorg or Plasma (X11) in the login session menu. This release offers
 file transfer and foreground manual clipboard operations on Wayland.
 
-Linux recovery: Ctrl+Alt+Shift+Esc. Game mode: Ctrl+Alt+Shift+G.
-These avoid Linux's Ctrl+Alt+F-key virtual terminal shortcuts.
+Linux recovery: Ctrl+Alt+Shift+Esc.
+This avoids Linux's Ctrl+Alt+F-key virtual terminal shortcuts.
 
 Run as your logged-in desktop user. Root, input-group membership and xhost changes
 are unnecessary. Auto-start is opt-in in Shared Settings.
@@ -37,5 +37,4 @@ need device-specific acceptance.
 This is a preview. No physical Linux computer was available for this release;
 CI exercises input and file/clipboard behavior in isolated Xvfb sessions.
 
-Language: English and Simplified Chinese. Choose Preferences > Local preferences > Language.
-The initial language follows your system locale; switching is immediate and remembered.
+The interface is Simplified Chinese.

@@ -193,19 +193,6 @@ def _glyph(kind, color, size):
             p.drawLine(3, y, x - 3, y)
             p.drawLine(x + 3, y, 21, y)
             p.drawEllipse(QPointF(x, y), 2.8, 2.8)
-    elif kind == "game":
-        path = QPainterPath(QPointF(7, 7))
-        path.cubicTo(2, 7, 0, 20, 5, 19)
-        path.lineTo(9, 16)
-        path.lineTo(15, 16)
-        path.lineTo(19, 19)
-        path.cubicTo(24, 20, 22, 7, 17, 7)
-        path.closeSubpath()
-        p.drawPath(path)
-        p.drawLine(5, 11, 10, 11)
-        p.drawLine(7.5, 8.5, 7.5, 13.5)
-        p.drawEllipse(QPointF(16.5, 10.5), 0.65, 0.65)
-        p.drawEllipse(QPointF(19, 13), 0.65, 0.65)
     elif kind == "shield":
         path = QPainterPath(QPointF(12, 3))
         path.lineTo(20, 6)
@@ -217,11 +204,6 @@ def _glyph(kind, color, size):
         p.drawPath(path)
         p.drawLine(8, 12, 11, 15)
         p.drawLine(11, 15, 16, 9)
-    elif kind == "help":
-        p.drawEllipse(QRectF(3, 3, 18, 18))
-        p.drawArc(QRectF(8, 6, 8, 8), 0, 180 * 16)
-        p.drawLine(12, 10, 12, 14)
-        p.drawPoint(12, 18)
     elif kind == "pause":
         p.drawLine(8, 5, 8, 19)
         p.drawLine(16, 5, 16, 19)
@@ -250,11 +232,6 @@ def _glyph(kind, color, size):
     elif kind == "link":
         p.drawRoundedRect(QRectF(2.5, 8.5, 11, 7), 3.5, 3.5)
         p.drawRoundedRect(QRectF(10.5, 8.5, 11, 7), 3.5, 3.5)
-    elif kind == "lock":
-        p.drawRoundedRect(QRectF(5, 10.5, 14, 10), 2.4, 2.4)
-        p.drawArc(QRectF(8, 4, 8, 12), 0, 180 * 16)
-        p.drawLine(QPointF(8, 10), QPointF(8, 10.5))
-        p.drawLine(QPointF(16, 10), QPointF(16, 10.5))
     p.end()
     pix.setDevicePixelRatio(2)
     return pix

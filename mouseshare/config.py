@@ -5,8 +5,6 @@ import platform
 import threading
 from pathlib import Path
 
-from .games import CATALOG_VERSION, DEFAULT_PROCESSES, upgrade_defaults
-
 
 def data_dir() -> Path:
     if platform.system() == "Windows":
@@ -29,18 +27,15 @@ class Settings:
         self.values = {
             "name": platform.node() or "My computer",
             "side": "right", "sensitivity": 1.0,
-            "game_mode": False, "auto_fullscreen": True, "allow_locked": False,
+            "allow_locked": False,
             "reclaim_on_input": True, "dock_icon": False,
-            "game_processes": list(DEFAULT_PROCESSES), "game_catalog_version": CATALOG_VERSION,
             "peers": {}, "startup": False,
-            "language": "system",
         }
         if self.path.exists():
             loaded = json.loads(self.path.read_text(encoding="utf-8"))
             if not isinstance(loaded, dict):
                 raise ValueError("Invalid settings file")
             self.values.update(loaded)
-            upgrade_defaults(self.values)
         if self.get("side") not in ("left", "right", "top", "bottom"):
             self.values["side"] = "right"
 

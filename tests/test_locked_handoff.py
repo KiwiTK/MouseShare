@@ -25,9 +25,6 @@ class LockedBackend(NullBackend):
     def desktop_active(self):
         return not self.locked
 
-    def foreground(self):
-        return "", False
-
 
 class FakeSession:
     peer_name = "Peer"

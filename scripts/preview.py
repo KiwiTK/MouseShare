@@ -26,14 +26,13 @@ from mouseshare.ui import apply_theme, card, text_label  # noqa: E402
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, default=Path("artifacts/design"))
-    parser.add_argument('--language', choices=['zh_CN', 'en'], default='zh_CN')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     app = QApplication([])
     apply_theme(app)
     with tempfile.TemporaryDirectory() as directory:
         settings = Settings(Path(directory))
-        settings.set(name='My Mac', side="left", language=args.language,
+        settings.set(name='My Mac', side="left",
                      peers={'a'*64: dict(name='Windows Desktop', host='192.168.1.20')})
         window = MainWindow(settings, Identity(Path(directory)), demo=True)
         peer_id = "a" * 64
@@ -42,12 +41,12 @@ def main():
         window.network.session = SimpleNamespace(peer_id=peer_id, peer_name='Windows Desktop', connected=True,
                                                  peer_features=['sharing-v1'])
         window.network.sessions[peer_id] = window.network.session
-        state = dict(state="local", game=False, manual_game=False, auto_reason="", paused=False,
-                     connected=True, peer_available=True, peer_name="Windows Desktop", ready=True, error="")
+        state = dict(state="local", paused=False, connected=True, peer_available=True,
+                     peer_name="Windows Desktop", ready=True, error="")
         window.show_status(state)
         window.refresh_peers()
         window.show()
-        for i, name in enumerate(["connection", "settings", "game", "sharing", 'layout']):
+        for i, name in enumerate(["connection", "settings", "sharing", 'layout']):
             window.stack.setCurrentIndex(i)
             app.processEvents()
             window.grab().save(str(args.output / f"{name}.png"))
@@ -65,11 +64,11 @@ def main():
                                         title='Designs / Project files', status='transferring',
                                         detail=tr('正在接收并校验'), total=200 * 1024**2, done=84 * 1024**2,
                                         paths=[], clipboard=False, speed=12 * 1024**2), persist=False)
-        window.stack.setCurrentIndex(3)
+        window.stack.setCurrentIndex(2)
         app.processEvents()
         window.grab().save(str(args.output / 'sharing-progress.png'))
         for name, changes in [("offline", dict(connected=False, peer_name="", peer_available=False)),
-                              ("locked", dict(game=True, manual_game=True)),
+                              ("paused", dict(paused=True, state="local")),
                               ("permissions", dict(ready=False, error=tr('需要辅助功能和输入监控权限；授权后点击重新检查')))]:
             window.stack.setCurrentIndex(0)
             window.show_status({**state, **changes})

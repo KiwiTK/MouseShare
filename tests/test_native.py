@@ -173,7 +173,7 @@ def test_mac_capture_forwards_delta_and_keeps_the_handoff_edge(monkeypatch):
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="Quartz cursor ownership")
-@pytest.mark.parametrize("finish", ["return", "panic", "game", "pause", "disconnected", "timeout", "stop"])
+@pytest.mark.parametrize("finish", ["return", "panic", "pause", "disconnected", "timeout", "stop"])
 def test_mac_cursor_association_restored_on_all_ownership_exits(tmp_path, monkeypatch, finish):
     from mouseshare.config import Settings
     from mouseshare.engine import Engine

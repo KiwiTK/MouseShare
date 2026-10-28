@@ -22,9 +22,6 @@ class FakeBackend(NullBackend):
     def move(self, x, y):
         self.moves.append((x, y))
 
-    def foreground(self):
-        return "", False
-
 
 class FakeSession:
     peer_name = "Peer"

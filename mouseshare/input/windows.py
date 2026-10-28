@@ -87,12 +87,7 @@ U.SendInput.restype = W.UINT
 U.GetForegroundWindow.restype = W.HWND
 U.GetCursorPos.argtypes = [C.POINTER(W.POINT)]
 U.GetCursorPos.restype = W.BOOL
-U.GetWindowRect.argtypes = [W.HWND, C.POINTER(W.RECT)]
-U.GetClassNameW.argtypes = [W.HWND, W.LPWSTR, C.c_int]
 U.GetWindowThreadProcessId.argtypes = [W.HWND, C.POINTER(W.DWORD)]
-U.MonitorFromWindow.argtypes = [W.HWND, W.DWORD]
-U.MonitorFromWindow.restype = W.HANDLE
-U.GetMonitorInfoW.argtypes = [W.HANDLE, C.c_void_p]
 U.PostThreadMessageW.argtypes = [W.DWORD, W.UINT, W.WPARAM, W.LPARAM]
 U.OpenInputDesktop.argtypes = [W.DWORD, W.BOOL, W.DWORD]
 U.OpenInputDesktop.restype = W.HANDLE
@@ -117,14 +112,6 @@ U.DispatchMessageW.argtypes = [C.POINTER(W.MSG)]
 U.DispatchMessageW.restype = LRESULT
 K.GetModuleHandleW.argtypes = [W.LPCWSTR]
 K.GetModuleHandleW.restype = W.HMODULE
-K.OpenProcess.argtypes = [W.DWORD, W.BOOL, W.DWORD]
-K.OpenProcess.restype = W.HANDLE
-K.QueryFullProcessImageNameW.argtypes = [W.HANDLE, W.DWORD, W.LPWSTR, C.POINTER(W.DWORD)]
-K.CloseHandle.argtypes = [W.HANDLE]
-
-
-class MonitorInfo(C.Structure):
-    _fields_ = [("cbSize", W.DWORD), ("rcMonitor", W.RECT), ("rcWork", W.RECT), ("dwFlags", W.DWORD)]
 
 
 class WindowsBackend(BaseBackend):
@@ -400,36 +387,6 @@ class WindowsBackend(BaseBackend):
                 value = Input(type=0)
                 value.mi = MouseInput(0, 0, int(amount * 120) & 0xFFFFFFFF, flags, 0, MARKER)
                 self.send(value)
-
-    def foreground(self):
-        hwnd = U.GetForegroundWindow()
-        if not hwnd:
-            return "", False
-        class_name = C.create_unicode_buffer(256)
-        U.GetClassNameW(hwnd, class_name, 256)
-        if class_name.value in {"Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"}:
-            return "", False
-        pid = W.DWORD()
-        U.GetWindowThreadProcessId(hwnd, C.byref(pid))
-        exe = ""
-        handle = K.OpenProcess(0x1000, False, pid)
-        if handle:
-            try:
-                text = C.create_unicode_buffer(32768)
-                size = W.DWORD(len(text))
-                if K.QueryFullProcessImageNameW(handle, 0, text, C.byref(size)):
-                    exe = text.value.rsplit("\\", 1)[-1]
-            finally:
-                K.CloseHandle(handle)
-        rect = W.RECT()
-        info = MonitorInfo(cbSize=C.sizeof(MonitorInfo))
-        monitor = U.MonitorFromWindow(hwnd, 2)
-        fullscreen = False
-        if U.GetWindowRect(hwnd, C.byref(rect)) and U.GetMonitorInfoW(monitor, C.byref(info)):
-            screen = info.rcMonitor
-            fullscreen = (abs(rect.left - screen.left) <= 2 and abs(rect.top - screen.top) <= 2
-                          and abs(rect.right - screen.right) <= 2 and abs(rect.bottom - screen.bottom) <= 2)
-        return exe, fullscreen
 
     def desktop_active(self):
         desktop = U.OpenInputDesktop(0, False, 1)

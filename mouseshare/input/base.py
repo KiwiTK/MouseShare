@@ -10,7 +10,7 @@ ALT = {226, 230}
 
 
 class BaseBackend:
-    shortcuts = {41: "panic", 69: "game", 6: "share_copy", 25: "share_paste", 44: "switch_peer"}
+    shortcuts = {41: "panic", 6: "share_copy", 25: "share_paste", 44: "switch_peer"}
     shortcut_modifiers = (CTRL, ALT)
     copy_modifier = CTRL
     def __init__(self, emit):
@@ -57,7 +57,7 @@ class BaseBackend:
                 action = 'share_paste'
             if down and action:
                 self.hotkey_keys.add(key)
-                if action in {'panic', 'game'}:
+                if action == 'panic':
                     self.capture(False)
                 self.emit({"type": "command", "action": action})
                 return True
@@ -137,9 +137,6 @@ class BaseBackend:
         monitor = next(m for m in screen['monitors'] if m['x'] <= x < m['x']+m['w']
                        and m['y'] <= y < m['y']+m['h'])
         return tuple(monitor[k] for k in ('x', 'y', 'w', 'h'))
-
-    def foreground(self):
-        return "", False
 
     def desktop_active(self):
         return True

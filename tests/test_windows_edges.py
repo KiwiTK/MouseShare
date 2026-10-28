@@ -135,18 +135,18 @@ def test_local_raw_fallback_has_no_duplicate_center_motion_or_inward_bounce(tmp_
     assert not engine.events and engine.state == 'local'
 
 
-def test_local_raw_fallback_preserves_held_input_and_game_protection(tmp_path, monkeypatch):
+def test_local_raw_fallback_preserves_held_input_and_pause(tmp_path, monkeypatch):
     engine, backend, hook, raw, drain, cursor, messages = source(tmp_path, monkeypatch)
     backend.buttons.add(1)
     raw(8, 0)
     drain()
     assert engine.state == 'local'
     backend.buttons.clear()
-    engine.manual_game = True
+    engine.handle_command({"action": "pause"})
     raw(8, 0)
     drain()
     assert engine.state == 'local'
-    engine.manual_game = False
+    engine.handle_command({"action": "pause"})
     raw(8, 0)
     drain()
     assert engine.state == 'pending'

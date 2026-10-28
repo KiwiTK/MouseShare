@@ -23,7 +23,7 @@ def app():
 @pytest.fixture
 def window(app, tmp_path):
     settings = Settings(tmp_path)
-    settings.set(language='zh_CN', peers={"a" * 64: {"name": "Paired PC", "host": "192.168.1.20", "port": 24872}})
+    settings.set(peers={"a" * 64: {"name": "Paired PC", "host": "192.168.1.20", "port": 24872}})
     window = MainWindow(settings, Identity(tmp_path), demo=True)
     yield window
     window.shutdown()
@@ -37,30 +37,25 @@ def test_settings_save_keeps_pairing_and_all_options(window, app):
     window.side.setCurrentIndex(window.side.findData("top"))
     window.speed.setValue(1.5)
     window.swap.setChecked(True)
-    window.games.setText("game.exe; another.exe")
     window.save_settings()
     saved = Settings(window.settings.directory)
     assert saved.get("name") == "My desktop"
     assert saved.get("side") == "top" and not hasattr(window, 'dwell')
     assert saved.get("sensitivity") == 1.5 and saved.get("swap_ctrl_meta")
-    assert saved.get("game_processes") == ["game.exe", "another.exe"]
     assert saved.get("peers") == paired
-    # Validation feedback remains visible on settings/game pages.
+    # Validation feedback stays visible on the settings page.
     window.device_name.setText("")
     window.save_settings()
     assert all("有效" in label.text() for label in window.saved_labels)
 
 
-def test_game_and_recovery_controls_keep_engine_commands(window, app):
+def test_recovery_controls_keep_engine_commands(window, app):
     state = dict(state="local", ready=True, connected=True, peer_name="Paired PC", peer_available=True,
-                 game=True, manual_game=True, auto_reason="", paused=False, error="")
+                 paused=False, error="")
     window.show_status(state)
-    assert window.game_button.isChecked() and window.game_page_button.isChecked()
-    window.game_page_button.clicked.emit()
     window.pause_button.clicked.emit()
-    assert [event["action"] for event in window.engine.events] == ["game", "pause"]
-    window.show_status({**state, "game": False, "manual_game": False, "paused": True})
-    assert not window.game_button.isChecked() and not window.game_page_button.isChecked()
+    assert [event["action"] for event in window.engine.events] == ["pause"]
+    window.show_status({**state, "paused": True})
     assert window.pause_button.text() == "恢复共享"
     window.resize(940, 720)
     window.stack.setCurrentIndex(1)
@@ -107,13 +102,12 @@ def test_unsaved_changes_return_after_successful_save_and_survive_network_notice
     # Returning the form to its saved values clears the pending state.
     window.device_name.setText("Saved name")
     assert not any(button.isEnabled() for button in window.save_buttons)
-    window.games.setText("another-game.exe")
+    window.speed.setValue(2.5)
     assert all(label.text() == "有未保存的更改" for label in window.saved_labels)
 
 
 @pytest.mark.parametrize("changes,expected", [
     ({"ready": False}, "权限设置"),
-    ({"game": True}, "游戏保护中"),
     ({"paused": True}, "共享已暂停"),
     ({"connected": False}, "连接另一台电脑"),
     ({"peer_available": False}, "对方暂不可用"),
@@ -121,7 +115,7 @@ def test_unsaved_changes_return_after_successful_save_and_survive_network_notice
 ])
 def test_blocked_home_prompts_next_action_instead_of_crossing_edge(window, changes, expected):
     state = dict(state="local", ready=True, connected=True, peer_name="Paired PC", peer_available=True,
-                 game=False, manual_game=False, auto_reason="", paused=False, error="")
+                 paused=False, error="")
     window.show_status({**state, **changes})
     assert expected in window.edge_hint.text()
     assert "180 ms" not in window.edge_hint.text()
@@ -147,7 +141,7 @@ def test_sharing_preferences_apply_without_touching_pairing_and_form(window, app
     assert window.settings.get('auto_receive_files') is True
     assert window.settings.get('peers') == saved
     assert window.form_values() == window.saved_form
-    window.stack.setCurrentIndex(3)
+    window.stack.setCurrentIndex(2)
     window.resize(940, 720)
     window.show()
     app.processEvents()
@@ -169,7 +163,7 @@ def test_transfer_history_keeps_completed_metadata_and_clear_preserves_files(win
 
 def test_progress_updates_keep_cancel_target_and_fit_minimum_window(window, app):
     panel = window.share_panel
-    window.stack.setCurrentIndex(3)
+    window.stack.setCurrentIndex(2)
     window.resize(940, 720)
     event = dict(type='transfer', job='busy', direction='send', title='long-name-' * 20,
                  status='transferring', detail='传输中', total=1000, done=1, paths=[], clipboard=False)
@@ -207,4 +201,4 @@ def test_drag_layout_snaps_rejects_overlap_and_keeps_unsaved_remote_draft(window
     assert editor.dirty and '草稿保留' in editor.feedback.text()
     editor.applied(queued['layout'])
     assert not editor.dirty
-    assert window.nav_group.button(4).text() == '屏幕布局'
+    assert window.nav_group.button(3).text() == '屏幕布局'

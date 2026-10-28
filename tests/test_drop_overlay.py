@@ -117,7 +117,7 @@ def test_drop_targets_original_peer_once_even_if_selection_changes(portal):
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize('cause', ['disconnect', 'replacement', 'pause', 'handoff', 'setting', 'peer_game'])
+@pytest.mark.parametrize('cause', ['disconnect', 'replacement', 'pause', 'handoff', 'setting', 'unavailable'])
 def test_changed_state_dismisses_overlay_and_never_sends(portal, cause):
     controller, window, peer, calls, app = portal
     window.backend.buttons.add(1)

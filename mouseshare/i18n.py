@@ -1,48 +1,4 @@
-"""App-owned messages and locale selection. User content never enters the catalog."""
-import json
-import sys
-from pathlib import Path
-
-from PySide6.QtCore import QLocale
-
-_catalog = json.loads((Path(__file__).parent / 'locales/en.json').read_text(encoding='utf-8'))
-_language = 'zh_CN'
-_preference = 'system'
-
-
-def system_ui_language():
-    """Use the OS display language even when a launcher exports LANG=C."""
-    if sys.platform == 'darwin':
-        from Foundation import NSLocale
-        preferred = NSLocale.preferredLanguages()
-        if preferred:
-            return str(preferred[0])
-    elif sys.platform == 'win32':
-        import ctypes
-        import locale
-        name = locale.windows_locale.get(ctypes.windll.kernel32.GetUserDefaultUILanguage())
-        if name:
-            return name
-    preferred = QLocale.system().uiLanguages()
-    return preferred[0] if preferred else QLocale.system().name()
-
-
-def resolve_language(preference='system', system_locale=None):
-    if preference in ('zh_CN', 'en'):
-        return preference
-    locale = system_locale if system_locale is not None else system_ui_language()
-    return 'zh_CN' if locale.lower().replace('-', '_').startswith('zh') else 'en'
-
-
-def language():
-    return _language
-
-
-def set_language(preference='system', system_locale=None):
-    global _language, _preference
-    _preference = preference if preference in ('system', 'zh_CN', 'en') else 'system'
-    _language = resolve_language(_preference, system_locale)
-    QLocale.setDefault(QLocale(_language))
+"""App-authored messages. Chinese is the only language, so messages are the source text."""
 
 
 def render(value):
@@ -50,11 +6,11 @@ def render(value):
 
 
 class Message(str):
-    """Retain the source and parameters for open widgets when the locale changes."""
+    """A formatted app message that remembers its source and parameters."""
     def __new__(cls, source, values=None):
         values = values or {}
-        text = _catalog.get(source, source) if _language == 'en' else source
-        obj = super().__new__(cls, text.format(**{k: render(v) for k, v in values.items()}) if values else text)
+        text = source.format(**{k: render(v) for k, v in values.items()}) if values else source
+        obj = super().__new__(cls, text)
         obj.source, obj.values = source, values
         return obj
 
@@ -78,10 +34,5 @@ def exception_text(exc):
 
 
 def status_message(value):
-    """Recover catalog-owned transfer statuses from older local history records."""
-    if isinstance(value, Message):
-        return value
-    if value in _catalog:
-        return tr(value)
-    source = next((source for source, text in _catalog.items() if text == value), None)
-    return tr(source) if source else value
+    """Recover app-authored transfer statuses from older local history records."""
+    return value if isinstance(value, Message) else tr(value)

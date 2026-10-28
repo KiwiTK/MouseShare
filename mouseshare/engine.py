@@ -57,8 +57,7 @@ class Engine:
         self.state = 'local'
         self.peer_available = self.paused = self.system_blocked = False
         self.desktop_live = True
-        self.manual_game = settings.get('game_mode')
-        self.auto_reason = self.error = ''
+        self.error = ''
         self.route_edge = None
         self.input_epoch = 0
         self.last_position = self.remote_position = (0, 0)
@@ -87,12 +86,8 @@ class Engine:
         self._last_reset = 0.0
 
     @property
-    def game(self):
-        return bool(self.manual_game or self.auto_reason)
-
-    @property
     def available(self):
-        return bool(self.backend and self.backend.ready() and not self.game and not self.paused and not self.system_blocked)
+        return bool(self.backend and self.backend.ready() and not self.paused and not self.system_blocked)
 
     def layout(self):
         value = self.settings.get('desktop_layout', {})
@@ -261,12 +256,7 @@ class Engine:
 
     def handle_command(self, event):
         action = event['action']
-        if action == 'game':
-            self.manual_game = not self.manual_game
-            self.settings.set(game_mode=self.manual_game)
-            self.release(True)
-            self.announce()
-        elif action == 'pause':
+        if action == 'pause':
             self.paused = not self.paused
             self.release(True)
             self.announce()
@@ -598,16 +588,6 @@ class Engine:
                 # local cursor — so without this, opting in strands the local
                 # pointer and makes the machine refuse every incoming handoff.
                 self.release(True)
-            process, fullscreen = self.backend.foreground()
-            games = {name.casefold() for name in self.settings.get('game_processes')}
-            reason = tr('游戏进程：{p0}', p0=process) if process.casefold() in games else (
-                tr('前台全屏窗口') if fullscreen and self.settings.get('auto_fullscreen') else '')
-            if reason != self.auto_reason:
-                before = self.game
-                self.auto_reason = reason
-                if before != self.game:
-                    self.release(True)
-                    self.announce()
         if self.state == 'pending' and now-self.pending_since > 1.5:
             self.handoff_timeouts += 1
             self.release(True)
@@ -836,7 +816,7 @@ class Engine:
         if not self.health_transitions or self.health_transitions[-1]['blocker'] != health['blocker']:
             self.health_transitions.append(dict(blocker=health['blocker'], at=round(self.clock(), 3)))
         self.backend.switch_shortcut_enabled = bool(self.available and (self.peer_available or any(self.availability.values())))
-        state = dict(state=self.state, game=self.game, manual_game=self.manual_game, auto_reason=self.auto_reason,
+        state = dict(state=self.state,
                      paused=self.paused, system_blocked=self.system_blocked,
                      connected=bool(self.session), peer_name=self.session.peer_name if self.session else '',
                      peer_available=self.peer_available, ready=bool(self.backend and self.backend.ready()),

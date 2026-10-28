@@ -1,4 +1,4 @@
-MouseShare 0.7.5 — macOS 13+（Apple Silicon / Intel 请下载对应架构）
+MouseShare 0.7.6 — macOS 13+（Apple Silicon / Intel 请下载对应架构）
 
 1. 打开 DMG，把 MouseShare 拖到 Applications（应用程序）。
 2. 从应用程序启动 MouseShare。本预览版使用本机签名，尚无 Apple 开发者公证。
@@ -13,11 +13,10 @@ MouseShare 0.7.5 — macOS 13+（Apple Silicon / Intel 请下载对应架构）
 5. 与 Windows 连接同一局域网。在列表里选择对方，两端核对相同的六位配对码并确认。
 6. 在两端的「共享设置」中分别设置对方方向并保存。例如 Mac 位于 Windows 右侧：Windows 选右侧，Mac 选左侧。
 7. 鼠标移到相接边缘立即跨屏，键盘自动跟随。沿原路移回即可返回。
-8. Control+Option+F12 切换手动游戏模式；Control+Option+Esc 随时收回键鼠。
-   部分键盘需同时按 Fn。操作目标电脑自己的实体键鼠也会收回控制。
+8. Control+Option+Esc 随时收回键鼠。部分键盘需同时按 Fn。
+   操作目标电脑自己的实体键鼠也会收回控制。
 
-游戏模式期间双向共享暂停。Windows 自动检测游戏进程和全屏窗口；Mac 使用手动游戏模式。
-关闭窗口后驻留菜单栏，从菜单选择退出。登录启动需在拖入应用程序后主动开启。
+暂停共享期间双向共享停用。关闭窗口后驻留菜单栏，从菜单选择退出。登录启动需在拖入应用程序后主动开启。
 
 数据：~/Library/Application Support/MouseShare
 卸载：先在应用内关闭登录启动，再退出，把应用移到废纸篓。
@@ -27,7 +26,7 @@ MouseShare 0.7.5 — macOS 13+（Apple Silicon / Intel 请下载对应架构）
 版本与校验：https://github.com/413180794/MouseShare/releases
 
 
-界面支持中文与英文，可在「共享设置 → 本机偏好 → 界面语言」立即切换；首次跟随系统。
+界面为简体中文。
 
 English quick start
 1. Drag MouseShare into Applications and open it. This preview uses an ad hoc signature.
@@ -35,6 +34,5 @@ English quick start
    the matching System Settings page; grant access and follow any Quit & Reopen prompt.
 3. Start MouseShare on both computers, compare the six-digit pairing codes, and approve both.
 4. Arrange touching screens in Screen layout and apply. Move to a shared edge to switch.
-5. Control+Option+Esc reclaims input; Control+Option+F12 toggles game mode (Fn may be needed).
-6. Choose Preferences > Local preferences > Language for English or Simplified Chinese.
+5. Control+Option+Esc reclaims input (Fn may be needed). The interface is Simplified Chinese.
 Read the full English guide: https://github.com/413180794/MouseShare/blob/main/README.en.md
