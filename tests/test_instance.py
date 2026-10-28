@@ -1,7 +1,9 @@
 import os
+import subprocess
+import sys
 
 import mouseshare.instance as instance
-from mouseshare.instance import claim, discard, lock_file, owner, release
+from mouseshare.instance import alive, claim, discard, lock_file, owner, release
 
 
 def test_the_lock_lives_in_the_app_data_directory(tmp_path, monkeypatch):
@@ -48,3 +50,19 @@ def test_a_second_copy_recovers_a_lock_left_by_a_crash(tmp_path):
     assert not claim(path)
     discard(path)
     assert claim(path)
+
+
+def test_a_finished_process_is_not_alive():
+    finished = subprocess.Popen([sys.executable, "-c", "pass"])
+    finished.wait()
+    assert not alive(finished.pid)
+
+
+def test_the_probe_never_signals_the_console(monkeypatch):
+    """os.kill(pid, 0) means CTRL_C_EVENT on Windows: it would interrupt every
+    process sharing the console instead of testing the pid."""
+    used = []
+    monkeypatch.setattr(os, "kill", lambda pid, sig: used.append((pid, sig)))
+    assert alive(os.getpid())
+    if sys.platform == "win32":
+        assert not used

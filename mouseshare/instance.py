@@ -7,6 +7,7 @@ file that records the process id, and the loser then waits for the winner's sock
 instead of starting a second copy.
 """
 import os
+import sys
 import time
 
 from PySide6.QtNetwork import QLocalSocket
@@ -17,6 +18,39 @@ from .config import data_dir
 START_TIMEOUT = 10.0
 # How long a cold start may spend looking for a socket that should not exist.
 PROBE_TIMEOUT = 0.4
+
+_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+_STILL_ACTIVE = 259
+
+
+def alive(pid):
+    """True while that process is still running.
+
+    os.kill(pid, 0) is the usual probe, but it is POSIX only: on Windows signal 0
+    is CTRL_C_EVENT, so the call would interrupt every process sharing the
+    console rather than test the pid.
+    """
+    if sys.platform == "win32":
+        import ctypes
+        handle = ctypes.windll.kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            if not ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return False
+            return code.value == _STILL_ACTIVE
+        finally:
+            ctypes.windll.kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
 
 
 def lock_file(name):
@@ -31,15 +65,7 @@ def owner(path):
         return None
     if pid <= 0 or pid == os.getpid():
         return None
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return None
-    except PermissionError:
-        pass
-    except OSError:
-        return None
-    return pid
+    return pid if alive(pid) else None
 
 
 def claim(path):
