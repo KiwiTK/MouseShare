@@ -58,6 +58,19 @@ def main():
         window.layout_editor.reset_nodes()
         app.processEvents()
         window.grab().save(str(args.output / 'layout-multimonitor.png'))
+        # Split the local second screen off and park it right of the peer.
+        editor = window.layout_editor
+        from PySide6.QtCore import QPointF
+        rects = editor.monitor_rects(window.identity.id)
+        editor.monitors[window.identity.id] = [dict(r) for r in rects]
+        editor.monitors[window.identity.id][1] = dict(x=rects[1]['x']+640, y=0,
+                                                      w=rects[1]['w'], h=rects[1]['h'])
+        for item in editor.items.values():
+            item.prepareGeometryChange()
+            item.update()
+        editor.fit()
+        app.processEvents()
+        window.grab().save(str(args.output / 'layout-multimonitor.png'))
         window.layout_editor.update_devices(original_metadata)
         window.layout_editor.reset_nodes()
         window.share_panel.transfer(dict(type='transfer', job='demo-file', direction='receive',

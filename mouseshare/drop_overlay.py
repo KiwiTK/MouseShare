@@ -11,7 +11,7 @@ from .drop_design import DropVisual
 from .i18n import exception_text, tr
 from .i18n_widgets import QWidget
 from .topology import Rect
-from .displays import mapped_monitors
+from .displays import contact_rects
 
 EDGE_WIDTH = 14
 
@@ -48,7 +48,8 @@ def edge_regions(layout, local_id, bounds, peers, legacy_side='right', selected=
             continue
         if nodes:
             screen = getattr(peers[key], 'peer_screen', {}) or dict(w=1920, h=1080)
-            contacts.extend((key, Rect(**r)) for r in mapped_monitors(nodes[key], screen))
+            rects = contact_rects(key, nodes[key], screen, layout.get('monitors'))
+            contacts.extend((key, Rect(**r)) for r in rects)
         else:
             contacts.append((key, None))
     for key, b in contacts:

@@ -36,6 +36,27 @@ class Rect:
             self.y+self.h, other.y+other.h)-max(self.y, other.y) > 0.1
 
 
+def parse_monitors(value, nodes):
+    """Optional per-monitor placement in layout coordinates, in system order.
+
+    A multi-monitor computer normally keeps its screens glued together in the
+    system's arrangement (the node rectangle). This field lets each physical
+    display be dragged to its own spot — e.g. a laptop's second screen placed
+    next to another computer — while the node rectangle stays as the anchor.
+    Older peers simply drop the field and fall back to the glued group.
+    """
+    if value is None or value == {}:
+        return {}
+    if not isinstance(value, dict) or any(key not in nodes for key in value):
+        raise ValueError(tr('显示器布局无效'))
+    result = {}
+    for key, items in value.items():
+        if not isinstance(items, list) or not 1 <= len(items) <= 16:
+            raise ValueError(tr('显示器布局无效'))
+        result[key] = [Rect.parse(item).data() for item in items]
+    return result
+
+
 def validate_layout(value):
     if not isinstance(value, dict) or type(value.get('enabled')) is not bool:
         raise ValueError(tr('布局格式无效'))
@@ -55,11 +76,19 @@ def validate_layout(value):
         if not isinstance(key, str) or not ID.fullmatch(key):
             raise ValueError(tr('设备标识无效'))
         rects[key] = Rect.parse(node)
-    for index, a in enumerate(rects.values()):
-        if any(a.overlaps(b) for b in list(rects.values())[index+1:]):
-            raise ValueError(tr('屏幕发生重叠，请将边缘对齐后保存'))
+    monitors = parse_monitors(value.get('monitors'), nodes)
+    # Overlap is judged on where screens actually sit: a split-off display no
+    # longer occupies the node rectangle it was born in.
+    groups = {key: (monitors.get(key) or [rect.data()]) for key, rect in rects.items()}
+    flat = [(key, rect) for key, group in groups.items() for rect in group]
+    for index, (key, a) in enumerate(flat):
+        a = Rect.parse(a)
+        for other, b in flat[index+1:]:
+            if a.overlaps(Rect.parse(b)):
+                raise ValueError(tr('屏幕发生重叠，请将边缘对齐后保存'))
     return dict(enabled=value['enabled'], revision=value['revision'], author=value['author'],
-                nodes={key: rect.data() for key, rect in rects.items()}, excluded=excluded)
+                nodes={key: rect.data() for key, rect in rects.items()},
+                excluded=excluded, **({'monitors': monitors} if monitors else {}))
 
 
 def neighbor(nodes, source, side, ratio):

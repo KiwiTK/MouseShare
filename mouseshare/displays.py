@@ -78,16 +78,61 @@ def mapped_monitors(node, screen):
                    w=monitor['w']*node['w']/screen['w'], h=monitor['h']*node['h']/screen['h'])
 
 
-def crossing(nodes, screens, source, side, point):
-    """Route between exposed physical edges, returning a native target entry point."""
+def contact_rects(key, node, screen, monitors=None):
+    """Where a device's screens actually sit on the canvas, in system order.
+
+    A saved per-monitor placement wins when it still matches the number of
+    physical displays; anything else (no placement, resolution change, a
+    monitor added or removed) falls back to the system arrangement glued
+    inside the node rectangle.
+    """
+    rects = rectangles(screen)
+    placed = (monitors or {}).get(key)
+    if placed and len(placed) == len(rects):
+        return placed
+    return list(mapped_monitors(node, screen))
+
+
+def screen_index_at(point, screen):
+    """Index of the system display holding a native point; nearest if in a gap."""
+    x, y = point
+    rects = rectangles(screen)
+    best, best_d = 0, None
+    for index, m in enumerate(rects):
+        dx = max(m['x']-x, 0, x-(m['x']+m['w']))
+        dy = max(m['y']-y, 0, y-(m['y']+m['h']))
+        d = dx*dx+dy*dy
+        if best_d is None or d < best_d:
+            best, best_d = index, d
+    return best
+
+
+def crossing(nodes, screens, source, side, point, monitors=None):
+    """Route between exposed physical edges, returning a native target entry point.
+
+    Each device occupies one rectangle per physical display. Those rectangles
+    sit in the system arrangement by default, but a saved placement (monitors)
+    may scatter them — so the cursor is located on the display it is actually
+    on, mapped through that display's real rectangle, and matched against the
+    real rectangles of every other device.
+    """
     if source not in nodes or source not in screens or not valid_point(point):
         return None
     node = nodes[source]
     source_screen = screens[source]
-    sx = node['x']+point[0]*(source_screen['w']-1)*node['w']/source_screen['w']
-    sy = node['y']+point[1]*(source_screen['h']-1)*node['h']/source_screen['h']
+    # Locate the cursor's display in system coordinates, then express it inside
+    # that display's actual canvas rectangle (which may have been dragged away).
+    mx = source_screen.get('x', 0)+point[0]*(source_screen['w']-1)
+    my = source_screen.get('y', 0)+point[1]*(source_screen['h']-1)
+    index = screen_index_at((mx, my), source_screen)
+    system = rectangles(source_screen)[index]
+    origin = contact_rects(source, node, source_screen, monitors)[index]
+    fx = (mx-system['x'])/max(1, system['w'])
+    fy = (my-system['y'])/max(1, system['h'])
+    sx = origin['x']+fx*origin['w']
+    sy = origin['y']+fy*origin['h']
     hits = []
-    for a in mapped_monitors(node, screens[source]):
+    for a in contact_rects(source, node, source_screen, monitors):
         edge = {'left': a['x'], 'right': a['x']+a['w'], 'top': a['y'], 'bottom': a['y']+a['h']}[side]
         axis, transverse = (sx, sy) if side in {'left', 'right'} else (sy, sx)
         start, length = (a['y'], a['h']) if side in {'left', 'right'} else (a['x'], a['w'])
@@ -97,14 +142,20 @@ def crossing(nodes, screens, source, side, point):
             if key == source:
                 continue
             screen = screens.get(key, dict(w=1920, h=1080))
-            for b in mapped_monitors(target, screen):
+            target_system = rectangles(screen)
+            for j, b in enumerate(contact_rects(key, target, screen, monitors)):
                 other = {'left': b['x']+b['w'], 'right': b['x'], 'top': b['y']+b['h'], 'bottom': b['y']}[side]
                 bs, bl = (b['y'], b['h']) if side in {'left', 'right'} else (b['x'], b['w'])
                 if abs(edge-other) > 1 or min(start+length, bs+bl)-max(start, bs) < 8 or not bs <= transverse < bs+bl:
                     continue
                 px, py = (other, transverse) if side in {'left', 'right'} else (transverse, other)
-                tx = screen.get('x', 0)+(px-target['x'])*screen['w']/target['w']
-                ty = screen.get('y', 0)+(py-target['y'])*screen['h']/target['h']
+                # Back from canvas coordinates into this display's native pixels.
+                m2 = target_system[j] if j < len(target_system) else dict(
+                    x=screen.get('x', 0), y=screen.get('y', 0), w=screen['w'], h=screen['h'])
+                nx = (px-b['x'])/max(1, b['w'])
+                ny = (py-b['y'])/max(1, b['h'])
+                tx = m2['x']+nx*m2['w']
+                ty = m2['y']+ny*m2['h']
                 tx += {'left': -9, 'right': 8}.get(side, 0)
                 ty += {'top': -9, 'bottom': 8}.get(side, 0)
                 entry = normalized(project((tx, ty), screen), screen)

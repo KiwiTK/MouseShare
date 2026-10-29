@@ -419,7 +419,10 @@ class Engine:
 
     def crossing(self, source, side, point):
         layout = self.layout()
-        return crossing(layout['nodes'], self.screens(), source, side, point) if layout else None
+        if not layout:
+            return None
+        return crossing(layout['nodes'], self.screens(), source, side, point,
+                        layout.get('monitors'))
 
     def physical(self, event):
         if event['type'] == 'move' and (event.get('_epoch', self.input_epoch) != self.input_epoch

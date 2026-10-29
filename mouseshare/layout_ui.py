@@ -5,8 +5,8 @@ from PySide6.QtCore import QPointF, QRectF, QSignalBlocker, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QGraphicsObject, QGraphicsScene, QHBoxLayout, QVBoxLayout
 
+from .displays import contact_rects
 from .i18n import exception_text, tr
-from .displays import mapped_monitors
 from .i18n_widgets import (
     QCheckBox,
     QComboBox,
@@ -24,31 +24,43 @@ class DeviceNode(QGraphicsObject):
     def __init__(self, editor, key):
         super().__init__()
         self.editor, self.key = editor, key
-        self.setFlags(self.GraphicsItemFlag.ItemIsMovable | self.GraphicsItemFlag.ItemIsSelectable)
-        self.old_position = QPointF()
+        self.setFlags(self.GraphicsItemFlag.ItemIsSelectable)
+        # Dragging is handled per physical display, not for the whole computer:
+        # a multi-monitor group must be splittable onto different neighbours.
+        self.drag = None
+
+    def bounds(self):
+        """Item-local drawing bounds: every display this computer occupies."""
+        node = self.editor.nodes[self.key]
+        rects = self.editor.monitor_rects(self.key)
+        left = min([0]+[m['x']-node['x'] for m in rects])
+        top = min([0]+[m['y']-node['y'] for m in rects])
+        right = max([node['w']]+[m['x']+m['w']-node['x'] for m in rects])
+        bottom = max([node['h']]+[m['y']+m['h']-node['y'] for m in rects])
+        return QRectF(left, top, right-left, bottom-top)
 
     def boundingRect(self):
-        node = self.editor.nodes[self.key]
-        return QRectF(0, 0, node['w'], node['h'])
+        return self.bounds().adjusted(-4, -4, 4, 4)
 
     def paint(self, painter, option, widget=None):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         meta = self.editor.metadata.get(self.key, {})
         local = self.key == self.editor.local_id
         active = local or meta.get('connected')
-        painter.setBrush(QColor(ACCENT_SOFT if self.isSelected() else '#ffffff'))
-        painter.setPen(QPen(QColor(ACCENT if self.isSelected() else LINE), 3 if self.isSelected() else 1.5))
-        rect = self.boundingRect()
-        screen = meta.get('screen') or dict(w=1920, h=1080)
-        monitors = list(mapped_monitors(dict(x=0, y=0, w=rect.width(), h=rect.height()), screen))
-        if len(monitors) > 1:
+        node = self.editor.nodes[self.key]
+        rect = self.bounds()
+        split = self.key in self.editor.monitors
+        monitors = self.editor.monitor_rects(self.key)
+        if len(monitors) > 1 and not split:
             painter.setBrush(QColor('#e2e9ec'))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRoundedRect(rect, 12, 12)
         for index, monitor in enumerate(monitors):
-            r = QRectF(*(monitor[k] for k in ('x', 'y', 'w', 'h'))).adjusted(2, 2, -2, -2)
+            r = QRectF(monitor['x']-node['x'], monitor['y']-node['y'],
+                       monitor['w'], monitor['h']).adjusted(2, 2, -2, -2)
             painter.setBrush(QColor(ACCENT_SOFT if self.isSelected() else '#ffffff'))
-            painter.setPen(QPen(QColor(ACCENT if self.isSelected() else LINE), 2))
+            painter.setPen(QPen(QColor(ACCENT if self.isSelected() else LINE),
+                                3 if self.isSelected() else 2))
             painter.drawRoundedRect(r, 10, 10)
             if len(monitors) > 1:
                 font = QFont(painter.font())
@@ -62,7 +74,8 @@ class DeviceNode(QGraphicsObject):
         painter.setFont(font)
         painter.setPen(QColor(INK if active else INK_2))
         for index, monitor in enumerate(monitors):
-            label_rect = QRectF(*(monitor[k] for k in ('x', 'y', 'w', 'h')))
+            label_rect = QRectF(monitor['x']-node['x'], monitor['y']-node['y'],
+                                monitor['w'], monitor['h'])
             painter.setFont(font)
             name = painter.fontMetrics().elidedText(meta.get('name', self.key[:8]), Qt.TextElideMode.ElideRight,
                                                    max(30, int(label_rect.width()-30)))
@@ -78,15 +91,24 @@ class DeviceNode(QGraphicsObject):
                              Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter, status)
         painter.setBrush(QColor(ACCENT if active else '#aab5b9'))
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawEllipse(QPointF(rect.width()-16, 16), 4, 4)
+        painter.drawEllipse(QPointF(label_rect.right()-16, label_rect.top()+16), 4, 4)
 
     def mousePressEvent(self, event):
-        self.old_position = self.pos()
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag = self.editor.hit_monitor(self, event.pos(), event.scenePos())
         super().mousePressEvent(event)
 
+    def mouseMoveEvent(self, event):
+        if self.drag:
+            self.editor.drag_monitor(self, event.scenePos())
+        else:
+            super().mouseMoveEvent(event)
+
     def mouseReleaseEvent(self, event):
+        drag, self.drag = self.drag, None
         super().mouseReleaseEvent(event)
-        self.editor.finish_drag(self, self.old_position)
+        if drag:
+            self.editor.finish_monitor_drag(self, drag)
 
 
 class DesktopView(QGraphicsView):
@@ -102,11 +124,14 @@ class LayoutEditor(QWidget):
         super().__init__(parent)
         self.settings, self.local_id, self.apply_layout = settings, local_id, apply_layout
         self.nodes, self.items, self.metadata, self.excluded = {}, {}, {}, set()
+        # Per-monitor placement for multi-monitor computers (system order).
+        # Empty until a screen is dragged out of the system arrangement.
+        self.monitors = {}
         self.dirty = False
         self.saving_revision = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.hint = text_label(tr('每块显示器分别显示。同一电脑的屏幕按系统排列成组拖动；组内位置请在系统显示设置中调整。'), 'hint', True)
+        self.hint = text_label(tr('每块显示器都独立可拖动：同一电脑的屏幕默认按系统排列，也可拖开分别摆到不同电脑旁边；保存后生效。'), 'hint', True)
         layout.addWidget(self.hint)
         self.scene = QGraphicsScene(self)
         self.scene.selectionChanged.connect(self.selection_changed)
@@ -196,6 +221,15 @@ class LayoutEditor(QWidget):
     def load(self, data):
         self.nodes = copy.deepcopy(data['nodes'])
         self.excluded = set(data.get('excluded', []))
+        # Placements for devices that are gone, or for a different number of
+        # displays than the system reports now, are dropped here (and
+        # contact_rects would ignore them at use time anyway).
+        self.monitors = {}
+        for key, placed in copy.deepcopy(data.get('monitors', {})).items():
+            if key in self.nodes:
+                screen = self.screen_dict(key)
+                if len(placed) == len(screen.get('monitors') or [screen]):
+                    self.monitors[key] = placed
         blocker = QSignalBlocker(self.enabled)
         self.enabled.setChecked(data.get('enabled', False))
         del blocker
@@ -222,32 +256,84 @@ class LayoutEditor(QWidget):
         self.save.setEnabled(True)
         self.feedback.setText(tr('布局有未保存的更改'))
 
-    def finish_drag(self, item, old):
-        node = dict(self.nodes[item.key], x=round(item.pos().x()/5)*5, y=round(item.pos().y()/5)*5)
-        for key, value in self.nodes.items():
-            if key == item.key:
-                continue
-            for candidate in (value['x']-node['w'], value['x']+value['w']):
-                if abs(node['x']-candidate) <= 12:
-                    node['x'] = candidate
-            for candidate in (value['y']-node['h'], value['y']+value['h']):
-                if abs(node['y']-candidate) <= 12:
-                    node['y'] = candidate
-        try:
-            self.validate_nodes({**self.nodes, item.key: node})
-        except ValueError as exc:
-            item.setPos(old)
-            self.feedback.setText(exception_text(exc))
+    def screen_dict(self, key):
+        return self.metadata.get(key, {}).get('screen') or dict(w=1920, h=1080)
+
+    def monitor_rects(self, key):
+        """Absolute canvas rectangles of every physical display, system order."""
+        return contact_rects(key, self.nodes[key], self.screen_dict(key), self.monitors)
+
+    def occupied_rects(self, skip_key=None, skip_index=None):
+        """Every rectangle on the canvas, for snapping and overlap checks."""
+        result = []
+        for key in self.nodes:
+            for index, rect in enumerate(self.monitor_rects(key)):
+                if key == skip_key and index == skip_index:
+                    continue
+                result.append(rect)
+        return result
+
+    def hit_monitor(self, item, local_pos, scene_pos):
+        node = self.nodes[item.key]
+        x, y = local_pos.x()+node['x'], local_pos.y()+node['y']
+        for index, rect in enumerate(self.monitor_rects(item.key)):
+            if rect['x'] <= x <= rect['x']+rect['w'] and rect['y'] <= y <= rect['y']+rect['h']:
+                return dict(index=index, anchor=QPointF(scene_pos), start=dict(rect), moved=False)
+        return None
+
+    def drag_monitor(self, item, scene_pos, drag=None):
+        drag = drag or getattr(item, 'drag', None)
+        if not drag:
             return
-        self.nodes[item.key] = node
-        item.setPos(node['x'], node['y'])
-        self.mark_dirty()
+        dx, dy = scene_pos.x()-drag['anchor'].x(), scene_pos.y()-drag['anchor'].y()
+        drag['moved'] = True
+        drag['current'] = dict(x=round((drag['start']['x']+dx)/5)*5,
+                               y=round((drag['start']['y']+dy)/5)*5,
+                               w=drag['start']['w'], h=drag['start']['h'])
+        item.prepareGeometryChange()
+        item.update()
+
+    def finish_monitor_drag(self, item, drag):
+        index = drag['index']
+        if not drag.get('moved'):
+            return
+        target = drag['current']
+        # Snap to every other screen's edges, then commit or bounce back.
+        for other in self.occupied_rects(item.key, index):
+            for candidate in (other['x']-target['w'], other['x']+other['w']):
+                if abs(target['x']-candidate) <= 12:
+                    target['x'] = candidate
+            for candidate in (other['y']-target['h'], other['y']+other['h']):
+                if abs(target['y']-candidate) <= 12:
+                    target['y'] = candidate
+        old_monitors = dict(self.monitors)
+        old_node = dict(self.nodes[item.key])
+        rects = [dict(r) for r in self.monitor_rects(item.key)]
+        rects[index] = target
+        single = len(rects) == 1
+        # A single display updates the node itself; a split-off display of a
+        # multi-monitor computer lives in the per-monitor placement.
+        if single:
+            self.nodes[item.key] = dict(target)
+        else:
+            self.monitors[item.key] = rects
+        try:
+            self.validate_nodes()
+        except ValueError as exc:
+            self.monitors = old_monitors
+            self.nodes[item.key] = old_node
+            self.feedback.setText(exception_text(exc))
+        else:
+            self.mark_dirty()
+        item.prepareGeometryChange()
+        item.update()
         self.scene.setSceneRect(self.scene.itemsBoundingRect().adjusted(-160, -160, 160, 160))
         self.selection_changed()
 
-    def validate_nodes(self, nodes):
-        return validate_layout(dict(enabled=True, revision=1, author=self.local_id, nodes=nodes,
-                                    excluded=sorted(self.excluded)))
+    def validate_nodes(self):
+        return validate_layout(dict(enabled=True, revision=1, author=self.local_id, nodes=self.nodes,
+                                    excluded=sorted(self.excluded),
+                                    monitors={k: v for k, v in self.monitors.items() if k in self.nodes}))
 
     def selection_changed(self):
         selected = self.scene.selectedItems()
@@ -275,6 +361,11 @@ class LayoutEditor(QWidget):
             return
         old = self.nodes[key]
         node = Rect(self.x.value(), self.y.value(), self.height.value()*old['w']/old['h'], self.height.value()).data()
+        # The panel moves a whole computer; split-off displays travel with it.
+        if key in self.monitors:
+            kx, ky = node['w']/max(1, old['w']), node['h']/max(1, old['h'])
+            self.monitors[key] = [dict(x=node['x']+(m['x']-old['x'])*kx, y=node['y']+(m['y']-old['y'])*ky,
+                                       w=m['w']*kx, h=m['h']*ky) for m in self.monitors[key]]
         self.items[key].prepareGeometryChange()
         self.nodes[key] = node
         self.items[key].setPos(node['x'], node['y'])
@@ -283,6 +374,7 @@ class LayoutEditor(QWidget):
 
     def reset_nodes(self):
         self.excluded.clear()
+        self.monitors = {}
         self.nodes = default_nodes(self.local_id, [k for k in self.metadata if k != self.local_id][:7], screens=self.screens())
         self.rebuild()
         self.mark_dirty()
@@ -292,6 +384,7 @@ class LayoutEditor(QWidget):
         key = self.device.currentData()
         if key and key != self.local_id:
             self.nodes.pop(key, None)
+            self.monitors.pop(key, None)
             self.excluded.add(key)
             self.rebuild()
             self.update_devices(self.metadata)
@@ -299,8 +392,10 @@ class LayoutEditor(QWidget):
 
     def save_layout(self):
         old = self.settings.get('desktop_layout', {})
+        monitors = {k: v for k, v in self.monitors.items() if k in self.nodes}
         data = dict(enabled=self.enabled.isChecked(), revision=old.get('revision', 0)+1,
-                    author=self.local_id, nodes=self.nodes, excluded=sorted(self.excluded))
+                    author=self.local_id, nodes=self.nodes, excluded=sorted(self.excluded),
+                    monitors=monitors)
         try:
             data = validate_layout(data)
         except ValueError as exc:

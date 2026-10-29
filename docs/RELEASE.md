@@ -1,3 +1,14 @@
+MouseShare v0.7.8 · 屏幕布局可逐块拖动 / Per-monitor layout placement
+
+- 屏幕布局改为以「显示器」为单位：双屏电脑不再被绑成一个整体，每块屏可以独立拖到画布任意位置（默认仍按系统几何排列）。
+- 跨屏判定与文件投递入口改用每块屏的实际摆放矩形：把第二屏拖到另一台电脑旁边，就能和那台电脑跨屏，而不只是和它自己的另一块屏。
+- 摆放结果写入布局的可选 `monitors` 字段；旧版本读到会忽略，与老配置双向兼容。显示器数量变化（拔插、改分辨率排列）时丢弃失效摆放，未保存的草稿照旧保留。
+- 保存时按每块屏的实际矩形做重叠校验，压到别的屏上会被拒绝并回退。
+
+The layout unit is now the physical monitor: a multi-monitor computer is no longer one rigid block — drag each display independently (system geometry remains the default). Crossing targets and drop entries are computed from each display's actual placement, so a split-off screen can neighbour another computer. Placements live in an optional `monitors` field that older versions simply ignore.
+
+---
+
 MouseShare v0.7.7 · 文件直接接收与界面紧凑化 / Flat receive folder, denser UI
 
 - 接收文件不再新建批次文件夹：文件与文件夹直接落到所选接收目录；重名自动追加「（1）」「（2）」，已有文件保持原样。

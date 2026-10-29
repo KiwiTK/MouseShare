@@ -186,14 +186,22 @@ def test_drag_layout_snaps_rejects_overlap_and_keeps_unsaved_remote_draft(window
     editor = window.layout_editor
     local, remote = window.identity.id, 'a'*64
     editor.nodes = {local: Rect(0, 0, 320, 180).data(), remote: Rect(320, 0, 320, 180).data()}
+    editor.monitors = {}
     editor.rebuild()
     item = editor.items[remote]
-    item.setPos(327, 65)
-    editor.finish_drag(item, QPointF(320, 0))
+    # Drag the remote display down; its x snaps back onto the local edge.
+    drag = editor.hit_monitor(item, QPointF(0, 0), QPointF(0, 0))
+    assert drag and drag['index'] == 0
+    item.drag = drag
+    editor.drag_monitor(item, QPointF(7, 65))
+    editor.finish_monitor_drag(item, drag)
     assert editor.nodes[remote]['x'] == 320 and editor.nodes[remote]['y'] == 65
-    item.setPos(100, 0)
-    editor.finish_drag(item, QPointF(320, 65))
-    assert item.pos() == QPointF(320, 65) and editor.nodes[remote]['x'] == 320
+    # Dragging into the local screen overlaps: the move is rejected.
+    drag = editor.hit_monitor(item, QPointF(0, 0), QPointF(0, 0))
+    item.drag = drag
+    editor.drag_monitor(item, QPointF(-170, -30))
+    editor.finish_monitor_drag(item, drag)
+    assert editor.nodes[remote]['x'] == 320 and editor.nodes[remote]['y'] == 65
     editor.save_layout()
     queued = window.engine.events[-1]
     assert queued['action'] == 'layout' and queued['layout']['nodes'][remote]['y'] == 65
@@ -202,3 +210,38 @@ def test_drag_layout_snaps_rejects_overlap_and_keeps_unsaved_remote_draft(window
     editor.applied(queued['layout'])
     assert not editor.dirty
     assert window.nav_group.button(3).text() == '屏幕布局'
+
+
+def test_split_multi_monitor_screens_drag_independently(window, app):
+    from PySide6.QtCore import QPointF
+    from mouseshare.topology import Rect
+    editor = window.layout_editor
+    local, remote = window.identity.id, 'a'*64
+    editor.nodes = {local: Rect(0, 0, 640, 180).data(), remote: Rect(640, 0, 320, 180).data()}
+    editor.metadata = {local: dict(name='Local', connected=True, screen=dict(
+        x=0, y=0, w=3840, h=1080, monitors=[
+            dict(id='left', x=0, y=0, w=1920, h=1080), dict(id='right', x=1920, y=0, w=1920, h=1080)])),
+        remote: dict(name='Remote', screen=dict(w=1920, h=1080))}
+    editor.monitors = {}
+    editor.rebuild()
+    item = editor.items[local]
+    # Screen 2 of the local computer is glued to screen 1 until dragged apart.
+    assert editor.monitor_rects(local) == [
+        dict(x=0, y=0, w=320, h=180), dict(x=320, y=0, w=320, h=180)]
+    drag = editor.hit_monitor(item, QPointF(330, 90), QPointF(330, 90))
+    assert drag and drag['index'] == 1
+    item.drag = drag
+    # Carry it past the remote computer; it snaps onto the remote's right edge.
+    # Scene positions include the press point, so the delta is 645, not 975.
+    editor.drag_monitor(item, QPointF(975, 90))
+    editor.finish_monitor_drag(item, drag)
+    assert editor.monitors[local][1] == dict(x=960, y=0, w=320, h=180)
+    assert editor.nodes[local] == Rect(0, 0, 640, 180).data()
+    editor.save_layout()
+    saved = window.engine.events[-1]['layout']
+    assert saved['monitors'][local][1]['x'] == 960
+    # A saved placement survives a reload; a stale one (display count changed) does not.
+    editor.load(saved)
+    assert editor.monitors[local][1]['x'] == 960
+    editor.load(dict(saved, monitors={local: [dict(x=0, y=0, w=320, h=180)]}))
+    assert local not in editor.monitors
