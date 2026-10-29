@@ -138,6 +138,16 @@ class BaseBackend:
                        and m['y'] <= y < m['y']+m['h'])
         return tuple(monitor[k] for k in ('x', 'y', 'w', 'h'))
 
+    def apply_arrangement(self, positions):
+        """Move this computer's own displays (native pixels, monitors() order).
+
+        Returns None once the arrangement is in place, otherwise a message for
+        the user. Travel between two screens of one computer is the system's
+        own doing, so a placement only routes the way the canvas draws it once
+        the operating system agrees with that geometry.
+        """
+        return tr('当前平台不支持自动排列，请在系统显示设置中手动调整')
+
     def desktop_active(self):
         return True
 

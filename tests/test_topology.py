@@ -1,5 +1,5 @@
 import pytest
-from mouseshare.topology import Rect, neighbor, validate_layout
+from mouseshare.topology import Rect, neighbor, screens_overlap, validate_layout
 
 A, B, C = (letter*64 for letter in 'abc')
 
@@ -22,8 +22,26 @@ def test_shared_edge_segments_select_exact_device_without_corner_ambiguity():
     assert neighbor(nodes, A, 'right', .75) == (C, .5)
 
 
-@pytest.mark.parametrize('bad', [Rect(100, 0, 320, 180).data(), dict(x=float('nan'), y=0, w=320, h=180),
+@pytest.mark.parametrize('bad', [dict(x=float('nan'), y=0, w=320, h=180),
                                 dict(x=320, y=0, w=1, h=180)])
-def test_reject_overlapping_or_invalid_rectangles(bad):
+def test_reject_invalid_rectangles(bad):
     with pytest.raises(ValueError):
         validate_layout(dict(enabled=True, author=A, revision=1, nodes={A: Rect(0, 0, 320, 180).data(), B: bad}))
+
+
+def test_overlapping_screens_are_allowed_but_reported():
+    """Free placement: a dropped screen must never be moved back again."""
+    layout = dict(enabled=True, author=A, revision=1,
+                  nodes={A: Rect(0, 0, 320, 180).data(), B: Rect(100, 0, 320, 180).data()})
+    assert validate_layout(layout)['nodes'][B]['x'] == 100
+    clashes = screens_overlap(layout)
+    assert len(clashes) == 1 and clashes[0][4] is False
+
+    # Two screens of one computer may overlap: the system owns that crossing.
+    own = dict(enabled=True, author=A, revision=1, nodes={A: Rect(0, 0, 320, 180).data()},
+               monitors={A: [Rect(0, 0, 160, 180).data(), Rect(80, 0, 160, 180).data()]})
+    assert validate_layout(own)['monitors'][A][1]['x'] == 80
+    assert screens_overlap(own)[0][4] is True
+    apart = dict(own, nodes={A: Rect(0, 0, 320, 180).data(), B: Rect(640, 0, 320, 180).data()},
+                 monitors={A: [Rect(0, 0, 160, 180).data(), Rect(160, 0, 160, 180).data()]})
+    assert screens_overlap(apart) == []

@@ -159,6 +159,28 @@ class WindowsBackend(BaseBackend):
             raise C.WinError(C.get_last_error())
         return result
 
+    def apply_arrangement(self, positions):
+        """Put the physical displays where the editor says they sit."""
+        from .windows_display import LastError
+        from .windows_display import set_positions
+        monitors = self.monitors()
+        if len(positions) != len(monitors) or len(monitors) < 2:
+            return tr('本机只有一块显示器，无需排列')
+        # Windows insists the primary display keeps its origin at (0, 0).
+        primary = next((index for index, monitor in enumerate(monitors)
+                        if monitor.get('primary')), 0)
+        px, py = positions[primary]
+        placed = [(x-px, y-py) for x, y in positions]
+        try:
+            set_positions(placed)
+        except (LastError, OSError) as exc:
+            return str(exc)
+        # The cache holds the old arrangement for up to a second; drop it so
+        # routing uses the new geometry right away.
+        self._monitors = None
+        self.monitor_checked = 0
+        return None
+
     def start(self):
         if self.running:
             return

@@ -180,7 +180,7 @@ def test_progress_updates_keep_cancel_target_and_fit_minimum_window(window, app)
     assert panel.files_enabled.height() >= panel.files_enabled.minimumSizeHint().height()
 
 
-def test_drag_layout_snaps_rejects_overlap_and_keeps_unsaved_remote_draft(window, app):
+def test_drag_layout_snaps_keeps_overlaps_and_unsaved_remote_draft(window, app):
     from PySide6.QtCore import QPointF
     from mouseshare.topology import Rect
     editor = window.layout_editor
@@ -196,12 +196,6 @@ def test_drag_layout_snaps_rejects_overlap_and_keeps_unsaved_remote_draft(window
     editor.drag_monitor(item, QPointF(7, 65))
     editor.finish_monitor_drag(item, drag)
     assert editor.nodes[remote]['x'] == 320 and editor.nodes[remote]['y'] == 65
-    # Dragging into the local screen overlaps: the move is rejected.
-    drag = editor.hit_monitor(item, QPointF(0, 0), QPointF(0, 0))
-    item.drag = drag
-    editor.drag_monitor(item, QPointF(-170, -30))
-    editor.finish_monitor_drag(item, drag)
-    assert editor.nodes[remote]['x'] == 320 and editor.nodes[remote]['y'] == 65
     editor.save_layout()
     queued = window.engine.events[-1]
     assert queued['action'] == 'layout' and queued['layout']['nodes'][remote]['y'] == 65
@@ -209,6 +203,25 @@ def test_drag_layout_snaps_rejects_overlap_and_keeps_unsaved_remote_draft(window
     assert editor.dirty and '草稿保留' in editor.feedback.text()
     editor.applied(queued['layout'])
     assert not editor.dirty
+
+
+def test_dropped_screen_stays_where_overlapping_it_landed(window, app):
+    """Free placement: nothing may pull a screen back to where it came from."""
+    from PySide6.QtCore import QPointF
+    from mouseshare.topology import Rect
+    editor = window.layout_editor
+    local, remote = window.identity.id, 'a'*64
+    editor.nodes = {local: Rect(0, 0, 320, 180).data(), remote: Rect(320, 0, 320, 180).data()}
+    editor.monitors = {}
+    editor.rebuild()
+    item = editor.items[remote]
+    drag = editor.hit_monitor(item, QPointF(0, 0), QPointF(0, 0))
+    item.drag = drag
+    editor.drag_monitor(item, QPointF(-170, -30))
+    editor.finish_monitor_drag(item, drag)
+    assert (editor.nodes[remote]['x'], editor.nodes[remote]['y']) == (150, -30)
+    assert editor.display_rects(remote)[0]['x'] == 150
+    assert '重叠' in editor.feedback.text()
     assert window.nav_group.button(3).text() == '屏幕布局'
 
 
@@ -277,3 +290,54 @@ def test_drag_preview_travels_with_the_cursor_and_labels_name_each_display(windo
     assert shared_edge(dict(x=0, y=0, w=100, h=100), dict(x=103, y=20, w=100, h=50)) is None
     assert shared_edge(dict(x=0, y=0, w=100, h=100), dict(x=0, y=100, w=100, h=50))['vertical'] is False
     editor.drag = None
+
+
+def test_canvas_arrangement_maps_back_to_native_pixels(window, app):
+    """Only the spacing between blocks means anything; the scale must cancel."""
+    from mouseshare.topology import Rect
+    editor = window.layout_editor
+    local = window.identity.id
+    editor.metadata = {local: dict(name='本機', screen=dict(x=0, y=0, w=3840, h=1080, monitors=[
+        dict(id='a', x=0, y=0, w=1920, h=1080, primary=True),
+        dict(id='b', x=1920, y=0, w=1920, h=1080)]))}
+    editor.nodes = {local: Rect(0, 0, 640, 180).data()}
+    # Side by side at half the block size: 320 canvas units per 1920 pixels.
+    editor.monitors = {local: [Rect(0, 0, 320, 180).data(), Rect(320, 0, 320, 180).data()]}
+    side_by_side = editor.system_positions()
+    assert side_by_side == [(0.0, 0.0), (1920.0, 0.0)]
+    # Stacked vertically instead.
+    editor.monitors = {local: [Rect(0, 0, 320, 180).data(), Rect(0, 180, 320, 180).data()]}
+    assert editor.system_positions() == [(0.0, 0.0), (0.0, 1080.0)]
+    # Single-display computers have nothing for the system to arrange.
+    editor.metadata[local]['screen'] = dict(x=0, y=0, w=1920, h=1080, monitors=[
+        dict(id='a', x=0, y=0, w=1920, h=1080, primary=True)])
+    editor.monitors = {}
+    assert editor.system_positions() is None
+
+
+def test_applying_the_arrangement_reports_platform_result(window, app):
+    """The pushed positions come from the drawing, and failures surface."""
+    from mouseshare.layout_ui import LayoutEditor
+    from mouseshare.topology import Rect
+    local = window.identity.id
+    two_screens = dict(screen=dict(x=0, y=0, w=3840, h=1080, monitors=[
+        dict(id='a', x=0, y=0, w=1920, h=1080, primary=True),
+        dict(id='b', x=1920, y=0, w=1920, h=1080)]))
+
+    def build(apply_system):
+        editor = LayoutEditor(window.settings, local, lambda value: None, apply_system)
+        editor.metadata = {local: two_screens}
+        editor.nodes = {local: Rect(0, 0, 640, 180).data()}
+        editor.monitors = {local: [Rect(0, 0, 320, 180).data(), Rect(0, 180, 320, 180).data()]}
+        return editor
+
+    captured = []
+    working = build(lambda positions: captured.append(positions) and None)
+    working.apply_system_arrangement()
+    assert captured == [[(0.0, 0.0), (0.0, 1080.0)]]
+    assert '\u6392\u5217' in working.feedback.text()
+
+    # A platform that cannot rearrange, or a refusal, must reach the user.
+    assert build(None).system_arrange()[0] is False
+    ok, message = build(lambda positions: 'Windows said no').system_arrange()
+    assert ok is False and message == 'Windows said no'

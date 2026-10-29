@@ -16,7 +16,8 @@ from .i18n_widgets import (
     QPushButton,
     QWidget,
 )
-from .topology import MAX_DEVICES, Rect, default_nodes, validate_layout
+from .topology import (MAX_DEVICES, Rect, default_nodes, screens_overlap,
+                      validate_layout)
 from .ui import ACCENT, ACCENT_SOFT, INK, INK_2, LINE, card, text_label
 
 
@@ -233,9 +234,12 @@ class DesktopView(QGraphicsView):
 
 
 class LayoutEditor(QWidget):
-    def __init__(self, settings, local_id, apply_layout, parent=None):
+    def __init__(self, settings, local_id, apply_layout, apply_system=None, parent=None):
         super().__init__(parent)
         self.settings, self.local_id, self.apply_layout = settings, local_id, apply_layout
+        # Lets the arranged screens be pushed into the operating system, so the
+        # movement between two screens of one computer matches the canvas.
+        self.apply_system = apply_system
         self.nodes, self.items, self.metadata, self.excluded = {}, {}, {}, set()
         # Per-monitor placement for multi-monitor computers (system order).
         # Empty until a screen is dragged out of the system arrangement.
@@ -244,7 +248,7 @@ class LayoutEditor(QWidget):
         self.saving_revision = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.hint = text_label(tr('每块显示器都独立可拖动：同一电脑的屏幕默认按系统排列，也可拖开分别摆到不同电脑旁边；保存后生效。'), 'hint', True)
+        self.hint = text_label(tr('每块显示器都独立可拖动，边缘贴齐后即出现黄线。同一电脑的屏幕之间由系统搬运鼠标，摆好后点「应用到系统排列」，让 Windows 也按这个位置排列；保存后跨屏生效。'), 'hint', True)
         layout.addWidget(self.hint)
         self.scene = QGraphicsScene(self)
         self.scene.selectionChanged.connect(self.selection_changed)
@@ -259,7 +263,8 @@ class LayoutEditor(QWidget):
         tools = QHBoxLayout()
         for label, callback in [(tr('适应画布'), self.fit), ('＋', lambda: self.view.scale(1.2, 1.2)),
                                 ('－', lambda: self.view.scale(1/1.2, 1/1.2)), (tr('重置排列'), self.reset_nodes),
-                                (tr('移出所选设备'), self.remove_selected)]:
+                                (tr('移出所选设备'), self.remove_selected),
+                                (tr('应用到系统排列'), self.apply_system_arrangement)]:
             button = QPushButton(label)
             button.clicked.connect(callback)
             tools.addWidget(button)
@@ -284,6 +289,8 @@ class LayoutEditor(QWidget):
         self.enabled.setChecked(True)
         self.enabled.toggled.connect(self.mark_dirty)
         layout.addWidget(self.enabled)
+        self.auto_arrange = QCheckBox(tr('保存时自动把本机屏幕排列同步到系统（Windows）'))
+        layout.addWidget(self.auto_arrange)
         row = QHBoxLayout()
         self.save = QPushButton(tr('保存并应用布局'))
         self.save.setObjectName('primary')
@@ -296,7 +303,9 @@ class LayoutEditor(QWidget):
         row.addWidget(self.feedback, 1)
         layout.insertLayout(1, row)
         layout.removeWidget(self.enabled)
+        layout.removeWidget(self.auto_arrange)
         layout.insertWidget(2, self.enabled)
+        layout.insertWidget(3, self.auto_arrange)
 
     def update_devices(self, metadata):
         self.metadata = metadata
@@ -454,34 +463,79 @@ class LayoutEditor(QWidget):
         if not drag.get('moved'):
             return
         target = self.snap_rect(drag['current'], item.key, index)
-        old_monitors = dict(self.monitors)
-        old_node = dict(self.nodes[item.key])
         rects = [dict(r) for r in self.monitor_rects(item.key)]
         rects[index] = target
-        single = len(rects) == 1
         # A single display updates the node itself; a split-off display of a
         # multi-monitor computer lives in the per-monitor placement.
-        if single:
+        if len(rects) == 1:
             self.nodes[item.key] = dict(target)
         else:
             self.monitors[item.key] = rects
-        try:
-            self.validate_nodes()
-        except ValueError as exc:
-            self.monitors = old_monitors
-            self.nodes[item.key] = old_node
-            self.feedback.setText(exception_text(exc))
-        else:
-            self.mark_dirty()
+        # Free placement: a screen stays exactly where it was dropped, however
+        # it overlaps. Nothing here may move it back.
+        self.validate_nodes()
+        self.mark_dirty()
         item.prepareGeometryChange()
         item.update()
         self.scene.setSceneRect(self.scene.itemsBoundingRect().adjusted(-160, -160, 160, 160))
         self.selection_changed()
+        self.warn_overlaps()
+
+    def warn_overlaps(self):
+        """Say which stacks cannot route, instead of quietly moving them back."""
+        try:
+            clashes = [pair for pair in screens_overlap(self.draft()) if not pair[4]]
+        except ValueError:
+            return
+        if clashes:
+            self.feedback.setText(tr('有 {p0} 处屏幕重叠，重叠的边缘不会跨屏', p0=len(clashes)))
+
+    def draft(self):
+        return dict(enabled=self.enabled.isChecked(), revision=1, author=self.local_id,
+                    nodes=self.nodes, excluded=sorted(self.excluded),
+                    monitors={k: v for k, v in self.monitors.items() if k in self.nodes})
 
     def validate_nodes(self):
-        return validate_layout(dict(enabled=True, revision=1, author=self.local_id, nodes=self.nodes,
-                                    excluded=sorted(self.excluded),
-                                    monitors={k: v for k, v in self.monitors.items() if k in self.nodes}))
+        return validate_layout(self.draft())
+
+    def system_positions(self):
+        """Native pixel positions for this computer's own screens, or None.
+
+        Canvas units are arbitrary (the user resizes blocks to compare sizes),
+        so only the spacing between the blocks carries meaning — it is divided
+        by the common scale to land back on real pixels.
+        """
+        if self.local_id not in self.nodes:
+            return None
+        screen = self.screen_dict(self.local_id)
+        monitors = rectangles(screen)
+        rects = self.monitor_rects(self.local_id)
+        if len(rects) != len(monitors) or len(rects) < 2:
+            return None
+        native = sum(monitor['w'] for monitor in monitors)
+        if not native:
+            return None
+        scale = sum(rect['w'] for rect in rects)/native
+        left = min(rect['x'] for rect in rects)
+        top = min(rect['y'] for rect in rects)
+        return [((rect['x']-left)/scale, (rect['y']-top)/scale) for rect in rects]
+
+    def system_arrange(self):
+        """Tell the operating system to lay this computer out as drawn."""
+        positions = self.system_positions()
+        if positions is None:
+            return False, tr('本机只有一块显示器，无需排列')
+        if not self.apply_system:
+            return False, tr('当前平台不支持自动排列，请在系统显示设置中手动调整')
+        try:
+            reply = self.apply_system(positions)
+        except Exception as exc:
+            return False, exception_text(exc)
+        return (False, str(reply)) if reply else (True, tr('已按布局调整本机显示器排列'))
+
+    def apply_system_arrangement(self):
+        _, message = self.system_arrange()
+        self.feedback.setText(message)
 
     def selection_changed(self):
         selected = self.scene.selectedItems()
@@ -552,6 +606,9 @@ class LayoutEditor(QWidget):
         self.saving_revision = data['revision']
         self.apply_layout(data)
         self.feedback.setText(tr('正在应用布局…'))
+        if self.auto_arrange.isChecked():
+            arranged, message = self.system_arrange()
+            self.feedback.setText(tr('正在应用布局，并同步本机屏幕排列…') if arranged else message)
 
     def applied(self, data):
         if self.dirty and not (data['author'] == self.local_id and data['revision'] == self.saving_revision):

@@ -229,7 +229,8 @@ class MainWindow(QMainWindow):
         layout.addStretch()
         layout, _ = self.make_page(tr('屏幕布局'), tr('拖动屏幕，排列你的整张桌面。最多连接 8 台电脑。'))
         self.layout_editor = LayoutEditor(self.settings, self.identity.id,
-                                          lambda value: self.engine.command("layout", layout=value))
+                                          lambda value: self.engine.command("layout", layout=value),
+                                          self.backend.apply_arrangement)
         layout.addWidget(self.layout_editor)
         layout.addStretch()
         self.stack.currentChanged.connect(lambda i: self.nav_group.button(i).setChecked(True))

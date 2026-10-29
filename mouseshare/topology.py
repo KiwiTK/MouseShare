@@ -77,18 +77,33 @@ def validate_layout(value):
             raise ValueError(tr('设备标识无效'))
         rects[key] = Rect.parse(node)
     monitors = parse_monitors(value.get('monitors'), nodes)
-    # Overlap is judged on where screens actually sit: a split-off display no
-    # longer occupies the node rectangle it was born in.
-    groups = {key: (monitors.get(key) or [rect.data()]) for key, rect in rects.items()}
-    flat = [(key, rect) for key, group in groups.items() for rect in group]
-    for index, (key, a) in enumerate(flat):
-        a = Rect.parse(a)
-        for other, b in flat[index+1:]:
-            if a.overlaps(Rect.parse(b)):
-                raise ValueError(tr('屏幕发生重叠，请将边缘对齐后保存'))
+    # Overlap used to be fatal here, which made the canvas bounce a screen back
+    # to where it came from the moment it grazed a neighbour. Screens may now
+    # sit anywhere; the editor warns instead of refusing the drop.
     return dict(enabled=value['enabled'], revision=value['revision'], author=value['author'],
                 nodes={key: rect.data() for key, rect in rects.items()},
                 excluded=excluded, **({'monitors': monitors} if monitors else {}))
+
+
+def screens_overlap(value):
+    """Pairs of screens sitting on top of each other, for a soft warning.
+
+    Two overlapping screens of one computer are harmless to routing (the system
+    owns that crossing) but usually mean the placement drifted; two belonging to
+    different computers make the shared edge ambiguous, so the editor says so
+    rather than silently dropping the position.
+    """
+    nodes = value.get('nodes') or {}
+    monitors = parse_monitors(value.get('monitors'), nodes)
+    flat = [(key, index, Rect.parse(rect))
+            for key, node in nodes.items()
+            for index, rect in enumerate(monitors.get(key) or [Rect.parse(node).data()])]
+    result = []
+    for position, (key, index, a) in enumerate(flat):
+        for other, other_index, b in flat[position+1:]:
+            if a.overlaps(b):
+                result.append((key, index, other, other_index, key == other))
+    return result
 
 
 def neighbor(nodes, source, side, ratio):
