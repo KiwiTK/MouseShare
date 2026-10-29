@@ -1,5 +1,5 @@
 #define AppName "MouseShare"
-#define AppVersion "0.7.6"
+#define AppVersion "0.7.7"
 #define SourceDir "..\dist\MouseShare"
 
 [Setup]
