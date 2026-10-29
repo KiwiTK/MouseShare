@@ -215,7 +215,7 @@ class FileClipboard(QObject):
             self.sync.status(tr('文件粘贴未完成：') + event['detail'])
             return
         if pending.get('destination'):
-            self.sync.status(tr('文件已接收到所选目录下的独立文件夹，现有文件已保留'))
+            self.sync.status(tr('文件已接收到所选文件夹'))
             return
         if pending.get('prefetch'):
             current = self.offers.get(pending['peer'], {})

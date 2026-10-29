@@ -66,11 +66,15 @@ def test_file_folder_and_empty_files_roundtrip_with_live_input(pair, tmp_path):
     assert [message['dx'] for message in messages] == list(range(20))
     assert a.session.connected and b.session.connected
     assert receive.jobs[job].clipboard
-    assert not list(target.parent.parent.glob('.mouseshare-*'))
-    # Separate batches preserve identical filenames.
+    # Files land directly inside the receive folder, never in a per-batch subfolder.
+    assert target.parent == receive.settings.directory / 'inbox'
+    assert target.name == '资料'
+    assert not list(target.parent.glob('.mouseshare-*'))
+    # Repeat batches keep every copy by taking the next free name.
     second = send.send_files([folder])
     wait_for(lambda: send.jobs[second].status == 'complete')
-    assert receive.jobs[second].paths != receive.jobs[job].paths
+    assert Path(receive.jobs[second].paths[0]) == receive.settings.directory / 'inbox' / '资料（1）'
+    assert (receive.settings.directory / 'inbox' / '资料' / 'empty.txt').is_file()
     # Also exercise a server-originated bulk channel, using the advertised listening port.
     reverse = receive.send_files([target / 'empty.txt'])
     wait_for(lambda: receive.jobs[reverse].status == 'complete')
@@ -258,8 +262,10 @@ def test_local_paste_destination_never_comes_from_peer_manifest(pair, tmp_path):
     wait_for(lambda: send.jobs[job].status in {'complete', 'error'})
     assert send.jobs[job].status == 'complete', send.jobs[job].detail
     received = Path(receive.jobs[job].paths[0])
-    assert received.parent.parent == selected and received.read_text() == 'received copy'
+    assert received.parent == selected and received.read_text() == 'received copy'
+    assert received.name == 'file（1）.txt'
     assert original.read_text() == 'existing user file'
+    assert not list(selected.glob('.mouseshare-*'))
 
 
 def test_prefetch_limit_rejects_transfer_before_writing_bytes(pair, tmp_path):

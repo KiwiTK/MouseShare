@@ -139,8 +139,8 @@ class MainWindow(QMainWindow):
         self.bridge.sharing.connect(self.sharing_event)
         self.setWindowTitle(f"MouseShare · {__version__}")
         self.setWindowIcon(app_icon())
-        self.resize(1060, 820)
-        self.setMinimumSize(940, 720)
+        self.resize(880, 700)
+        self.setMinimumSize(780, 620)
         self.build_ui()
         self.bind_settings_feedback()
         self.build_tray()
@@ -178,9 +178,9 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(shell)
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(220)
+        sidebar.setFixedWidth(188)
         rail = QVBoxLayout(sidebar)
-        rail.setContentsMargins(14, 26, 14, 18)
+        rail.setContentsMargins(12, 20, 12, 14)
         rail.setSpacing(4)
         brand = QHBoxLayout()
         brand.setContentsMargins(6, 0, 0, 0)
@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         brand.addWidget(text_label("MouseShare", "brand"), 1)
         brand.setSpacing(6)
         rail.addLayout(brand)
-        rail.addSpacing(26)
+        rail.addSpacing(18)
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
         self.stack = QStackedWidget()
@@ -289,8 +289,8 @@ class MainWindow(QMainWindow):
         root.setObjectName("page")
         scroll.setWidget(root)
         layout = QVBoxLayout(root)
-        layout.setContentsMargins(32, 28, 32, 22)
-        layout.setSpacing(16)
+        layout.setContentsMargins(24, 22, 24, 18)
+        layout.setSpacing(12)
         heading = QHBoxLayout()
         heading.setContentsMargins(0, 0, 0, 4)
         labels = QVBoxLayout()
@@ -316,7 +316,7 @@ class MainWindow(QMainWindow):
         heading.addWidget(self.status_badge, 0, Qt.AlignmentFlag.AlignTop)
         box, body = card()
         box.setObjectName("canvas")
-        body.setContentsMargins(24, 22, 24, 18)
+        body.setContentsMargins(20, 18, 20, 14)
         body.setSpacing(4)
         self.state_label = text_label(tr('正在启动…'), "state")
         self.detail = text_label(tr('准备连接你的另一台电脑。'), "hint", True)
@@ -493,7 +493,7 @@ class MainWindow(QMainWindow):
         row.addWidget(hint, 1)
         footer = QFrame()
         footer.setObjectName("footer")
-        row.setContentsMargins(32, 12, 32, 14)
+        row.setContentsMargins(24, 10, 24, 12)
         footer.setLayout(row)
         self.page_layouts[layout].addWidget(footer)
 
@@ -979,9 +979,22 @@ def main():
     if not claim(lock):
         if forward(name, outgoing(), START_TIMEOUT):
             return 0
-        QMessageBox.critical(None, "MouseShare", tr('无法启动本机控制服务，请重启应用。'))
-        return 1
-    atexit.register(release, lock)
+        # The lock may be stale: a killed copy never ran its atexit release.
+        # A dead recorded pid (or our own) means nobody owns the service, so
+        # drop the file and try once more instead of failing until a human
+        # deletes the lock by hand.
+        if owner(lock) is None:
+            discard(lock)
+            if claim(lock):
+                atexit.register(release, lock)
+            else:
+                QMessageBox.critical(None, "MouseShare", tr('无法启动本机控制服务，请重启应用。'))
+                return 1
+        else:
+            QMessageBox.critical(None, "MouseShare", tr('无法启动本机控制服务，请重启应用。'))
+            return 1
+    else:
+        atexit.register(release, lock)
     QLocalServer.removeServer(name)
     server = QLocalServer()
     server.setSocketOptions(QLocalServer.SocketOption.UserAccessOption)

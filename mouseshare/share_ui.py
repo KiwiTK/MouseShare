@@ -95,7 +95,7 @@ class SharePanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(16)
+        layout.setSpacing(12)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         self.status = text_label(tr('连接后同步新复制的内容；旧剪贴板保留在本机。'), 'hint', True)
         layout.addWidget(self.status)
@@ -106,7 +106,7 @@ class SharePanel(QWidget):
         row.addWidget(clear)
         layout.addLayout(row)
         self.records = QVBoxLayout()
-        self.records.setSpacing(10)
+        self.records.setSpacing(8)
         layout.addLayout(self.records)
         self.empty = text_label(tr('还没有传输记录。'), 'hint')
         layout.addWidget(self.empty)
@@ -131,7 +131,7 @@ class SharePanel(QWidget):
             self.context_menu.setChecked(window.settings.get('file_context_menu', False))
             self.context_menu.toggled.connect(self.toggle_context_menu)
             body.addWidget(self.context_menu)
-            body.addWidget(text_label(tr('Windows 11 位于「显示更多选项」。Ubuntu GNOME 需安装 python3-nautilus 并重新打开文件管理器。文件存入所选目录下的独立文件夹。'), 'hint', True))
+            body.addWidget(text_label(tr('Windows 11 位于「显示更多选项」。Ubuntu GNOME 需安装 python3-nautilus 并重新打开文件管理器。文件直接存入所选文件夹，同名自动改名。'), 'hint', True))
         self.clipboard_images.setEnabled(self.clipboard_enabled.isChecked())
         self.clipboard_files.setEnabled(self.clipboard_enabled.isChecked())
         actions = QHBoxLayout()
@@ -188,7 +188,7 @@ class SharePanel(QWidget):
         open_folder.clicked.connect(self.open_destination)
         row.addWidget(open_folder)
         body.addLayout(row)
-        body.addWidget(text_label(tr('每批保存到独立文件夹，保留同名文件。单次最多 100 GiB／4096 项。'), 'hint', True))
+        body.addWidget(text_label(tr('文件直接存入所选文件夹，重名自动加（1）（2）。单次最多 100 GiB／4096 项。'), 'hint', True))
         layout.addWidget(box)
         try:
             history = json.loads(self.history_path.read_text())
@@ -341,7 +341,9 @@ class SharePanel(QWidget):
                 self.window.clipboard_sync.copy_files(paths)
         self.empty.setVisible(not self.rows)
         pending = sum(e['status'] == 'offered' for e in self.events.values())
-        self.window.nav_group.button(3).setText(tr('文件待接收 ({p0})', p0=pending) if pending else tr('文件与剪贴板'))
+        # 导航序号：2 = 文件与剪贴板，3 = 屏幕布局。这里只能改文件页的角标，
+        # 不能碰屏幕布局的按钮（历史上文件页曾排在第 3 位）。
+        self.window.nav_group.button(2).setText(tr('文件待接收 ({p0})', p0=pending) if pending else tr('文件与剪贴板'))
         if persist and status in {'complete', 'error', 'cancelled', 'rejected'}:
             self.save_history()
         for old in list(self.rows)[:-30]:

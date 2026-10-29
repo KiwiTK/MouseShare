@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import stat
+import sys
 import tempfile
 import threading
 import time
@@ -22,6 +23,12 @@ MAX_CLIPBOARD = 8 * 1024**2
 CHUNK = 128 * 1024
 RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
             *(f"LPT{i}" for i in range(1, 10))}
+CASE_INSENSITIVE = os.name == 'nt' or sys.platform == 'darwin'
+
+
+def cut(text, room):
+    """Truncate to room bytes on a character boundary."""
+    return text.encode('utf-8')[:room].decode('utf-8', 'ignore').rstrip() or '文件'
 
 
 def is_link(path):
@@ -41,6 +48,48 @@ def safe_path(value):
                 or part.split('.')[0].upper() in RESERVED):
             raise ProtocolError(tr('文件名包含目标系统不支持的字符'))
     return path
+
+
+def name_key(name):
+    """Identity of a directory entry; Windows and macOS ignore case."""
+    key = unicodedata.normalize('NFC', name)
+    return key.casefold() if CASE_INSENSITIVE else key
+
+
+def name_free(directory, name):
+    """False also when the name itself cannot be used on this filesystem."""
+    try:
+        return not (directory / name).exists()
+    except OSError:
+        return False
+
+
+def unique_name(directory, name, taken=()):
+    """First free name inside directory. Conflicts become 「原文件名（1）」, 「（2）」…"""
+    claimed = {name_key(item) for item in taken}
+    if name_free(directory, name) and name_key(name) not in claimed:
+        return name
+    stem, suffix = Path(name).stem, Path(name).suffix
+    for index in range(1, 100000):
+        # Keep room for the filesystem's own limit; a suffix never pushes a name over 240 bytes.
+        extra = f"（{index}）{suffix}"
+        room = 240 - len(extra.encode('utf-8'))
+        head = stem if len(stem.encode('utf-8')) <= room else cut(stem, room)
+        candidate = head + extra
+        if name_free(directory, candidate) and name_key(candidate) not in claimed:
+            return candidate
+    raise OSError(tr('同名文件过多，请整理接收目录'))
+
+
+def plan_roots(destination, entries):
+    """Top-level name each batch entry gets inside destination, in arrival order."""
+    taken, mapping = set(), {}
+    for entry in entries:
+        parts = safe_path(entry['path']).parts
+        if parts[0] not in mapping:
+            mapping[parts[0]] = unique_name(destination, parts[0], taken)
+            taken.add(name_key(mapping[parts[0]]))
+    return mapping
 
 
 def manifest(paths, check=lambda: None):
@@ -384,13 +433,15 @@ class SharingService:
             destination.mkdir(parents=True, exist_ok=True)
             if shutil.disk_usage(destination).free < job.total + 10 * 1024**2:
                 raise OSError(tr('接收目录空间不足'))
+            plan = plan_roots(destination, entries)
             staging = Path(tempfile.mkdtemp(prefix='.mouseshare-', dir=destination))
             sock.sendall(frame(dict(type='accept', accepted=True)))
             self.update(job, 'transferring', tr('正在接收并校验'))
             last = 0
             for entry in entries:
                 self.check(job)
-                target = staging.joinpath(*safe_path(entry['path']).parts)
+                parts = safe_path(entry['path']).parts
+                target = staging.joinpath(plan[parts[0]], *parts[1:])
                 if entry['directory']:
                     target.mkdir(mode=0o700)
                     continue
@@ -412,11 +463,17 @@ class SharingService:
                 if check.get('type') != 'hash' or digest.hexdigest() != check.get('sha256'):
                     raise ProtocolError(tr('文件校验失败，未保留不完整文件'))
             self.check(job)
-            # Commit an entire batch atomically into its own unique folder.
-            final = destination / (time.strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:8])
-            staging.rename(final)
+            # Land every top-level item straight into the destination folder; a
+            # name that is already taken gets the next free （n） variant.
+            landed, taken = [], set()
+            for name in names:
+                item = destination / unique_name(destination, plan[name], taken)
+                os.rename(staging / plan[name], item)
+                taken.add(name_key(item.name))
+                landed.append(item)
+            shutil.rmtree(staging)
             staging = None
-            job.paths = [str(final / name) for name in names]
+            job.paths = [str(item) for item in landed]
             self.update(job, 'complete', tr('接收完成，SHA-256 校验通过'))
             sock.sendall(frame(dict(type='complete')))
         except Exception as exc:

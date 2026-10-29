@@ -1,3 +1,14 @@
+MouseShare v0.7.7 · 文件直接接收与界面紧凑化 / Flat receive folder, denser UI
+
+- 接收文件不再新建批次文件夹：文件与文件夹直接落到所选接收目录；重名自动追加「（1）」「（2）」，已有文件保持原样。
+- 界面整体收紧：默认窗口 1060×820 → 880×700，侧栏 220 → 188，页面边距与区块间距同步收窄，屏幕布局画布 330 → 290。
+- 修复侧栏「屏幕布局」被误写成「文件与剪贴板」：文件页刷新待接收角标时按旧序号覆盖了导航按钮文字。
+- 修复单实例死锁：进程被强杀后残留的锁文件会让之后所有实例启动失败（提示「无法启动本机控制服务」），现在自动识别并回收。
+
+Files now land directly in the chosen receive folder instead of a per-batch subfolder; duplicates take the next free 「（1）」/「（2）」 name. The window is more compact (880×700 default, narrower sidebar and tighter spacing). Fixes the sidebar label overwritten by the inbox counter and stale single-instance lock files that blocked every restart.
+
+---
+
 MouseShare v0.7.6 · 精简功能与瘦身 / Trimmed features, smaller packages
 
 - 删除游戏模式：自动全屏／游戏进程检测、进程名单页面与 F12 快捷键一并移除；收回键鼠的 Esc 快捷键保持不变。

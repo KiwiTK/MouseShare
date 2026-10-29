@@ -112,7 +112,7 @@ class LayoutEditor(QWidget):
         self.scene.selectionChanged.connect(self.selection_changed)
         self.view = DesktopView(self.scene)
         self.view.setAccessibleName(tr('可拖动的电脑屏幕布局'))
-        self.view.setFixedHeight(330)
+        self.view.setFixedHeight(290)
         self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.view.setStyleSheet('QGraphicsView {background:#eef3f4; border:1px solid #dce5e8; border-radius:12px;}')
