@@ -245,3 +245,35 @@ def test_split_multi_monitor_screens_drag_independently(window, app):
     assert editor.monitors[local][1]['x'] == 960
     editor.load(dict(saved, monitors={local: [dict(x=0, y=0, w=320, h=180)]}))
     assert local not in editor.monitors
+
+
+def test_drag_preview_travels_with_the_cursor_and_labels_name_each_display(window, app):
+    """Dragging must show the screen moving, and say which physical screen it is."""
+    from PySide6.QtCore import QPointF
+    from mouseshare.layout_ui import shared_edge
+    from mouseshare.topology import Rect
+    editor = window.layout_editor
+    local, remote = window.identity.id, 'a'*64
+    editor.nodes = {local: Rect(0, 0, 640, 180).data(), remote: Rect(0, 260, 320, 180).data()}
+    editor.metadata = {local: dict(name='本机', screen=dict(x=0, y=0, w=3840, h=1080, monitors=[
+        dict(id='left', x=0, y=0, w=1920, h=1080, primary=True),
+        dict(id='right', x=1920, y=0, w=1920, h=1080)])),
+        remote: dict(name='Remote', screen=dict(w=1920, h=1080))}
+    editor.rebuild()
+    item = editor.items[local]
+    placed = editor.display_rects(local)
+    drag = editor.hit_monitor(item, QPointF(330, 90), QPointF(330, 90))
+    item.drag = drag
+    # The picture follows the cursor while the button is still down.
+    editor.drag_monitor(item, QPointF(430, 200))
+    drag['current']['x'] = editor.display_rects(local)[1]['x']
+    assert editor.display_rects(local)[1] == drag['current']
+    assert editor.display_rects(local)[0] == placed[0]
+    assert '1920×1080 @(0,0)' in editor.monitor_label(local, 0)
+    assert '主屏' in editor.monitor_label(local, 0)
+    assert '1@' not in editor.monitor_label(local, 1) and '@(1920,0)' in editor.monitor_label(local, 1)
+    # Touching blocks light up; separated ones do not.
+    assert shared_edge(dict(x=0, y=0, w=100, h=100), dict(x=100, y=20, w=100, h=50))['vertical']
+    assert shared_edge(dict(x=0, y=0, w=100, h=100), dict(x=103, y=20, w=100, h=50)) is None
+    assert shared_edge(dict(x=0, y=0, w=100, h=100), dict(x=0, y=100, w=100, h=50))['vertical'] is False
+    editor.drag = None

@@ -426,3 +426,27 @@ def test_coalesced_reversal_preserves_latest_outward_direction(tmp_path):
     assert event['dx'] == 0
     engine.physical(event)
     assert engine.state == 'pending' and engine.health()['attempts'] == 1
+
+
+def test_received_motion_is_coalesced_without_losing_travel(tmp_path):
+    """A burst must not leave the cursor replaying frames after the hand stopped."""
+    engine, now = setup(tmp_path)
+    engine.receive({"type": "enter", "edge": "right", "position": 0.5})
+    start = engine.remote_position
+    for index in range(60):
+        now[0] += 0.001
+        engine.remote_move(4, 2)
+    burst = len(engine.backend.moves)
+    now[0] += 1
+    engine.tick()
+    assert burst < 60
+    x, y = engine.remote_position
+
+    # The same total travel applied in one step must land in the same place.
+    straight, moment = setup(tmp_path)
+    straight.receive({"type": "enter", "edge": "right", "position": 0.5})
+    moment[0] += 1
+    straight.remote_move(240, 120)
+    straight.tick()
+    assert (x, y) == straight.remote_position
+    assert x > start[0]

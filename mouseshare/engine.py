@@ -1,12 +1,13 @@
 """Input ownership: one physical source, many authenticated peers, explicit flow tokens."""
 import collections
+import json
 import os
 import threading
 import time
 import uuid
 
 from .i18n import tr
-from .displays import crossing, native, normalized, project
+from .displays import crossing, native, normalized, project, rectangles as rect_displays
 from .protocol import OPPOSITE
 from .topology import layout_key, neighbor, validate_layout
 
@@ -61,6 +62,13 @@ class Engine:
         self.route_edge = None
         self.input_epoch = 0
         self.last_position = self.remote_position = (0, 0)
+        self.remote_pending = [0.0, 0.0]
+        self.remote_flush = 0.0
+        # Received motion is summed and injected once per this interval. Shorter
+        # trades smoothness for processor time on the receiving side; at 4 ms a
+        # burst collapses to 250 injections a second, well past what either
+        # Windows or macOS applies without building a backlog.
+        self.move_interval = 0.004
         self.incoming_edge = 'left'
         self.handoff_side, self.handoff_ratio = settings.get('side'), 0.5
         self.push = {}
@@ -83,6 +91,8 @@ class Engine:
         self.thread = None
         self._edge_debug_checked = 0.0
         self._edge_debug = False
+        self._edge_directory = None
+        self._contact_signature = None
         self._last_reset = 0.0
 
     @property
@@ -326,16 +336,31 @@ class Engine:
         target.send({'type': 'available'})
 
     def edge_debug(self):
-        """Temporary instrument: log edge decisions while a marker file exists."""
+        """Instrument that runs while a marker file sits next to the settings.
+
+        Create an empty file named `.edge-debug` beside the configuration — on
+        Windows `%LOCALAPPDATA%\\MouseShare\\.edge-debug`, on macOS
+        `~/Library/Application Support/MouseShare/.edge-debug` — and every edge
+        decision lands in `edge-debug.log` next to it. Delete the marker to stop.
+        """
         now = self.clock()
         if now - self._edge_debug_checked > 2:
             self._edge_debug_checked = now
-            self._edge_debug = os.path.exists('/tmp/.mouseshare-edge-debug')
+            marker, _ = self.edge_paths()
+            self._edge_debug = os.path.exists(marker)
         return self._edge_debug
+
+    def edge_paths(self):
+        from .config import data_dir
+        directory = self._edge_directory or data_dir()
+        self._edge_directory = directory
+        return directory / '.edge-debug', directory / 'edge-debug.log'
 
     def edge_log(self, line):
         try:
-            with open('/tmp/mouseshare-edge-debug.log', 'a') as stream:
+            _, target = self.edge_paths()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with open(target, 'a') as stream:
                 stream.write('%.3f %s\n' % (time.time(), line))
         except OSError:
             pass
@@ -421,8 +446,30 @@ class Engine:
         layout = self.layout()
         if not layout:
             return None
-        return crossing(layout['nodes'], self.screens(), source, side, point,
-                        layout.get('monitors'))
+        monitors = layout.get('monitors')
+        screens = self.screens()
+        if self.edge_debug() and monitors:
+            self.log_contacts(monitors, screens)
+        return crossing(layout['nodes'], screens, source, side, point, monitors)
+
+    def log_contacts(self, monitors, screens):
+        """Record the rectangles actually used, whenever the placement changes.
+
+        The question behind most "it crosses the wrong way" reports is simply
+        which rectangles were in force, so print them rather than guess.
+        """
+        signature = json.dumps({'m': monitors, 's': {k: v.get('monitors') for k, v in screens.items()}},
+                               sort_keys=True, ensure_ascii=False)
+        if signature == self._contact_signature:
+            return
+        self._contact_signature = signature
+        for key, placed in monitors.items():
+            system = screens.get(key, {})
+            for index, rect in enumerate(placed):
+                origin = rect_displays(system)[index] if index < len(rect_displays(system)) else {}
+                self.edge_log(f"placement {key[:8]} disp{index} system="
+                              f"({origin.get('x')},{origin.get('y')}) {origin.get('w')}x{origin.get('h')}"
+                              f" -> canvas ({rect['x']},{rect['y']}) {rect['w']}x{rect['h']}")
 
     def physical(self, event):
         if event['type'] == 'move' and (event.get('_epoch', self.input_epoch) != self.input_epoch
@@ -554,6 +601,9 @@ class Engine:
     def tick(self):
         now = self.clock()
         self.last_tick = now
+        # Release whatever motion is still owed: without this the last few
+        # pixels stay in the accumulator until the next sample arrives.
+        self.flush_remote_move()
         if self.backend.captured and (self.state not in {'sending', 'pending'} or not self.available):
             # A capture that outlived its handoff swallows every local mouse and
             # keyboard event, which reads as a completely dead desktop: nothing
@@ -701,6 +751,7 @@ class Engine:
             self.remote_position = (native(message['point'], screen) if message.get('point')
                                     and supports(session, 'monitors-v1') else
                                     project(entry_point(self.incoming_edge, message['position'], self.backend.bounds()), screen))
+            self.remote_pending = [0.0, 0.0]
             self.backend.move(*self.remote_position)
             self.input_epoch += 1
             self.state, self.route_edge = 'receiving', None
@@ -780,8 +831,29 @@ class Engine:
         self.begin(destination, message['edge'], ratio, keep_capture=True, point=mapped[2] if mapped else None)
 
     def remote_move(self, dx, dy):
+        """Queue received motion instead of replaying every sample.
+
+        A fast drag can deliver far more move messages than the far end manages
+        to inject, and each unplayed message is another step the cursor still
+        owes: Windows then keeps dragging the window after the hand stopped,
+        and a rubber-band selection goes on growing by itself. Summing the
+        deltas and injecting once per short interval keeps the path (and the
+        final position) identical while dropping only the redundant frames.
+        """
         if self.state != 'receiving':
             return
+        self.remote_pending[0] += dx
+        self.remote_pending[1] += dy
+        self.flush_remote_move()
+
+    def flush_remote_move(self, force=False):
+        now, dx, dy = self.clock(), self.remote_pending[0], self.remote_pending[1]
+        if (not dx and not dy) or self.state != 'receiving':
+            return
+        if not force and now-self.remote_flush < self.move_interval:
+            return
+        self.remote_pending = [0.0, 0.0]
+        self.remote_flush = now
         speed = self.settings.get('sensitivity')
         x, y = self.remote_position
         screen = self.backend.screen_info()

@@ -173,7 +173,7 @@ def main():
         import plistlib
         info = bundle / "Contents/Info.plist"
         content = plistlib.loads(info.read_bytes())
-        content.update({"CFBundleShortVersionString": "0.7.8", "CFBundleVersion": "29",
+        content.update({"CFBundleShortVersionString": "0.7.9", "CFBundleVersion": "30",
                         "LSMinimumSystemVersion": "13.0",
                         "CFBundleDevelopmentRegion": "en",
                         "CFBundleLocalizations": ["en", "zh-Hans"],
@@ -206,7 +206,7 @@ def main():
         shutil.copytree(bundle, stage / bundle.name, symlinks=True)
         (stage / "Applications").symlink_to("/Applications")
         shutil.copyfile(ROOT / "docs/INSTALL-macOS.txt", stage / "INSTALL.txt")
-        target = DIST / f"MouseShare-0.7.8-macOS-{platform.machine()}.dmg"
+        target = DIST / f"MouseShare-0.7.9-macOS-{platform.machine()}.dmg"
         target.unlink(missing_ok=True)
         run("hdiutil", "create", "-volname", "MouseShare", "-srcfolder", stage,
             "-ov", "-format", "UDZO", target)
@@ -219,7 +219,7 @@ def main():
         compiler = Path(r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe")
         run(compiler, ROOT / "packaging/windows.iss", timeout=600)
         shutil.copyfile(ROOT / "docs/INSTALL-Windows.txt", DIST / "MouseShare/INSTALL.txt")
-        shutil.make_archive(str(DIST / "MouseShare-0.7.8-Windows-x64-portable"), "zip",
+        shutil.make_archive(str(DIST / "MouseShare-0.7.9-Windows-x64-portable"), "zip",
                             DIST, "MouseShare")
     elif sys.platform.startswith("linux"):
         licenses(DIST / "MouseShare/licenses")
@@ -228,7 +228,7 @@ def main():
         run(DIST / "MouseShare/MouseShare", "--drop-smoke-test", timeout=300)
         sys.path.insert(0, str(ROOT / "packaging"))
         from linux import build_linux
-        build_linux(ROOT, DIST, "0.7.8")
+        build_linux(ROOT, DIST, "0.7.9")
     else:
         raise RuntimeError("Unsupported build platform")
 

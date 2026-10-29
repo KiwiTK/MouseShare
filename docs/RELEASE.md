@@ -1,3 +1,14 @@
+MouseShare v0.7.9 · 拖动跟手、相邻可见、远端不再拖尾 / Live drag, visible adjacency, no remote lag
+
+- 屏幕布局拖动重做：画布不再用「抓手平移」抢走拖动（抓手只在没有屏幕的空白处生效），按住的屏幕**实时跟手**移动并带吸附预览，不再松手才跳位。
+- 相邻关系可视化：两台电脑的屏幕贴上时画一条黄色高亮，一眼看出光标会从哪里交出去；拆开的每块屏还标注自己的分辨率、系统坐标和主屏标记，摆错对象一目了然。
+- 接收端运动合成：快速晃动／框选时，把积压的移动合并成每 4ms 一次注入。总位移不变（终点一致），但「手停了窗口还在晃、框选自己长大」的拖尾消失。
+- 跨屏调试日志搬到配置目录：在配置目录放一个空的 `.edge-debug` 文件即可记录每次跨界判定和生效的屏幕摆放（Windows `%LOCALAPPDATA%\MouseShare\`，macOS `~/Library/Application Support/MouseShare/`）。
+
+Layout dragging now tracks the cursor live (the canvas hand-drag only engages on empty space), shows a yellow stripe wherever two computers' screens actually touch, and labels each block with its resolution, system position and primary flag. The receiving side sums arriving motion and injects once per 4 ms — same total travel, no rubber-band that keeps growing after the hand stops. Edge decisions can be logged by dropping a `.edge-debug` file next to the settings.
+
+---
+
 MouseShare v0.7.8 · 屏幕布局可逐块拖动 / Per-monitor layout placement
 
 - 屏幕布局改为以「显示器」为单位：双屏电脑不再被绑成一个整体，每块屏可以独立拖到画布任意位置（默认仍按系统几何排列）。

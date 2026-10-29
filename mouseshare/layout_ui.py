@@ -5,7 +5,7 @@ from PySide6.QtCore import QPointF, QRectF, QSignalBlocker, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QGraphicsObject, QGraphicsScene, QHBoxLayout, QVBoxLayout
 
-from .displays import contact_rects
+from .displays import contact_rects, rectangles
 from .i18n import exception_text, tr
 from .i18n_widgets import (
     QCheckBox,
@@ -32,7 +32,7 @@ class DeviceNode(QGraphicsObject):
     def bounds(self):
         """Item-local drawing bounds: every display this computer occupies."""
         node = self.editor.nodes[self.key]
-        rects = self.editor.monitor_rects(self.key)
+        rects = self.editor.display_rects(self.key)
         left = min([0]+[m['x']-node['x'] for m in rects])
         top = min([0]+[m['y']-node['y'] for m in rects])
         right = max([node['w']]+[m['x']+m['w']-node['x'] for m in rects])
@@ -50,65 +50,143 @@ class DeviceNode(QGraphicsObject):
         node = self.editor.nodes[self.key]
         rect = self.bounds()
         split = self.key in self.editor.monitors
-        monitors = self.editor.monitor_rects(self.key)
+        monitors = self.editor.display_rects(self.key)
+        dragged = (self.drag or {}).get('index')
         if len(monitors) > 1 and not split:
             painter.setBrush(QColor('#e2e9ec'))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRoundedRect(rect, 12, 12)
         for index, monitor in enumerate(monitors):
-            r = QRectF(monitor['x']-node['x'], monitor['y']-node['y'],
-                       monitor['w'], monitor['h']).adjusted(2, 2, -2, -2)
-            painter.setBrush(QColor(ACCENT_SOFT if self.isSelected() else '#ffffff'))
-            painter.setPen(QPen(QColor(ACCENT if self.isSelected() else LINE),
-                                3 if self.isSelected() else 2))
+            box = QRectF(monitor['x']-node['x'], monitor['y']-node['y'],
+                         monitor['w'], monitor['h'])
+            r = box.adjusted(2, 2, -2, -2)
+            moving = index == dragged
+            painter.setBrush(QColor(ACCENT_SOFT if self.isSelected() or moving else '#ffffff'))
+            painter.setPen(QPen(QColor(ACCENT if self.isSelected() or moving else LINE),
+                                3 if self.isSelected() or moving else 2))
             painter.drawRoundedRect(r, 10, 10)
-            if len(monitors) > 1:
-                font = QFont(painter.font())
-                font.setPixelSize(14)
-                painter.setFont(font)
-                painter.setPen(QColor(INK_2))
-                painter.drawText(r.adjusted(10, 8, -10, -8), Qt.AlignmentFlag.AlignTop, str(index+1))
         font = QFont(painter.font())
         font.setPixelSize(16 if len(monitors) > 1 else 20)
         font.setBold(True)
-        painter.setFont(font)
         painter.setPen(QColor(INK if active else INK_2))
         for index, monitor in enumerate(monitors):
-            label_rect = QRectF(monitor['x']-node['x'], monitor['y']-node['y'],
-                                monitor['w'], monitor['h'])
+            box = QRectF(monitor['x']-node['x'], monitor['y']-node['y'],
+                         monitor['w'], monitor['h'])
             painter.setFont(font)
             name = painter.fontMetrics().elidedText(meta.get('name', self.key[:8]), Qt.TextElideMode.ElideRight,
-                                                   max(30, int(label_rect.width()-30)))
-            painter.drawText(label_rect.adjusted(15, 15, -15, -38), Qt.AlignmentFlag.AlignCenter, name)
-            footer_font = QFont(font)
-            footer_font.setPixelSize(12)
-            footer_font.setBold(False)
+                                                   max(30, int(box.width()-30)))
+            painter.drawText(box.adjusted(15, 15, -15, -38), Qt.AlignmentFlag.AlignCenter, name)
+            if len(monitors) > 1:
+                painter.setFont(self.small(painter, 12))
+                painter.setPen(QColor(INK_2))
+                painter.drawText(box.adjusted(8, 8, -8, -8),
+                                 Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft,
+                                 self.editor.monitor_label(self.key, index))
+            footer_font = self.small(painter, 12)
             painter.setFont(footer_font)
+            painter.setPen(QColor(INK_2))
             status = tr('本机') if local else (tr('已连接') if active else tr('离线／未配对'))
             if len(monitors) > 1:
                 status = str(status)+f' · {index+1}/{len(monitors)}'
-            painter.drawText(label_rect.adjusted(10, 30, -10, -10),
+            painter.drawText(box.adjusted(10, 30, -10, -10),
                              Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter, status)
         painter.setBrush(QColor(ACCENT if active else '#aab5b9'))
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawEllipse(QPointF(label_rect.right()-16, label_rect.top()+16), 4, 4)
+        painter.drawEllipse(QPointF(rect.right()-16, rect.top()+16), 4, 4)
+
+    @staticmethod
+    def small(painter, size):
+        font = QFont(painter.font())
+        font.setPixelSize(size)
+        font.setBold(False)
+        return font
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self.drag = self.editor.hit_monitor(self, event.pos(), event.scenePos())
+            if self.drag:
+                # Without this the scene never hands us the move events, since
+                # the view no longer runs its own hand-drag.
+                self.grabMouse()
+                event.accept()
+                super().mousePressEvent(event)
+                return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
         if self.drag:
             self.editor.drag_monitor(self, event.scenePos())
+            event.accept()
         else:
             super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
         drag, self.drag = self.drag, None
+        if drag:
+            self.ungrabMouse()
         super().mouseReleaseEvent(event)
         if drag:
             self.editor.finish_monitor_drag(self, drag)
+
+
+def shared_edge(a, b, tolerance=1.0):
+    """The segment where two rectangles touch, or None.
+
+    Crossing works along shared edges only, so showing them tells the user
+    which pairs of screens can actually hand over to each other.
+    """
+    if abs(a['x']+a['w']-b['x']) <= tolerance or abs(b['x']+b['w']-a['x']) <= tolerance:
+        top, bottom = max(a['y'], b['y']), min(a['y']+a['h'], b['y']+b['h'])
+        if bottom-top > 0.5:
+            x = b['x'] if abs(a['x']+a['w']-b['x']) <= tolerance else a['x']
+            return dict(vertical=True, x=x, start=top, end=bottom)
+    if abs(a['y']+a['h']-b['y']) <= tolerance or abs(b['y']+b['h']-a['y']) <= tolerance:
+        left, right = max(a['x'], b['x']), min(a['x']+a['w'], b['x']+b['w'])
+        if right-left > 0.5:
+            y = b['y'] if abs(a['y']+a['h']-b['y']) <= tolerance else a['y']
+            return dict(vertical=False, y=y, start=left, end=right)
+    return None
+
+
+class ContactEdges(QGraphicsObject):
+    """Accent stripes on every pair of touching screens across two computers."""
+
+    def __init__(self, editor):
+        super().__init__()
+        self.editor = editor
+        self.setZValue(-1)
+
+    def paint(self, painter, option, widget=None):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rects = [(key, rect) for key in self.editor.nodes
+                 for rect in self.editor.display_rects(key)]
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor('#f0b429'))
+        for index, (key, a) in enumerate(rects):
+            for other, b in rects[index+1:]:
+                if key == other:
+                    continue  # Displays of one computer are crossed by the system.
+                edge = shared_edge(a, b)
+                if not edge:
+                    continue
+                painter.drawRect(QRectF(edge['x']-2, edge['start'], 4, edge['end']-edge['start'])
+                                 if edge['vertical'] else
+                                 QRectF(edge['start'], edge['y']-2, edge['end']-edge['start'], 4))
+
+    def bounds(self):
+        rects = [rect for key in self.editor.nodes for rect in self.editor.display_rects(key)]
+        if not rects:
+            return QRectF()
+        left = min(r['x'] for r in rects)
+        top = min(r['y'] for r in rects)
+        right = max(r['x']+r['w'] for r in rects)
+        bottom = max(r['y']+r['h'] for r in rects)
+        return QRectF(left, top, right-left, bottom-top).adjusted(-8, -8, 8, 8)
+
+    def boundingRect(self):
+        # Computed from the rectangles themselves: asking the scene here would
+        # recurse right back into this item.
+        return self.bounds()
 
 
 class DesktopView(QGraphicsView):
@@ -117,6 +195,41 @@ class DesktopView(QGraphicsView):
         if not getattr(self, 'fitted', False) and self.scene() and self.scene().items():
             self.fitInView(self.scene().itemsBoundingRect().adjusted(-40, -40, 40, 40), Qt.AspectRatioMode.KeepAspectRatio)
             self.fitted = True
+
+    def empty_space(self, event):
+        return self.itemAt(event.position().toPoint()) is None
+
+    def mousePressEvent(self, event):
+        # ScrollHandDrag would swallow the press and pan instead of letting the
+        # device screens be dragged, so panning is done by hand on empty space.
+        if event.button() == Qt.MouseButton.LeftButton and self.empty_space(event):
+            self.panning = event.position()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        start = getattr(self, 'panning', None)
+        if start is not None:
+            delta = self.mapToScene(event.position().toPoint())-self.mapToScene(start.toPoint())
+            for bar, amount in ((self.horizontalScrollBar(), delta.x()),
+                                (self.verticalScrollBar(), delta.y())):
+                bar.setValue(int(bar.value()-amount))
+            self.panning = event.position()
+            event.accept()
+            return
+        self.setCursor(Qt.CursorShape.OpenHandCursor if self.empty_space(event)
+                       else Qt.CursorShape.ArrowCursor)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if getattr(self, 'panning', None) is not None:
+            self.panning = None
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
 
 class LayoutEditor(QWidget):
@@ -139,7 +252,8 @@ class LayoutEditor(QWidget):
         self.view.setAccessibleName(tr('可拖动的电脑屏幕布局'))
         self.view.setFixedHeight(290)
         self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self.view.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.view.setCursor(Qt.CursorShape.OpenHandCursor)
         self.view.setStyleSheet('QGraphicsView {background:#eef3f4; border:1px solid #dce5e8; border-radius:12px;}')
         layout.addWidget(self.view)
         tools = QHBoxLayout()
@@ -240,6 +354,8 @@ class LayoutEditor(QWidget):
     def rebuild(self):
         self.items.clear()
         self.scene.clear()
+        self.contacts = ContactEdges(self)
+        self.scene.addItem(self.contacts)
         for key, node in self.nodes.items():
             item = DeviceNode(self, key)
             item.setPos(node['x'], node['y'])
@@ -263,6 +379,25 @@ class LayoutEditor(QWidget):
         """Absolute canvas rectangles of every physical display, system order."""
         return contact_rects(key, self.nodes[key], self.screen_dict(key), self.monitors)
 
+    def display_rects(self, key):
+        """What to draw: the committed placement, with any live drag applied."""
+        rects = [dict(rect) for rect in self.monitor_rects(key)]
+        drag = getattr(self.items.get(key), 'drag', None)
+        if drag and drag.get('current') and 0 <= drag['index'] < len(rects):
+            rects[drag['index']] = drag['current']
+        return rects
+
+    def monitor_label(self, key, index):
+        """Which physical display this block is, so the mapping is not a guess."""
+        screen = self.screen_dict(key)
+        monitors = rectangles(screen)
+        if index >= len(monitors):
+            return ''
+        monitor = monitors[index]
+        return '{w}×{h} @({x},{y}){primary}'.format(
+            w=monitor['w'], h=monitor['h'], x=monitor['x'], y=monitor['y'],
+            primary=' ' + tr('主屏') if monitor.get('primary') else '')
+
     def occupied_rects(self, skip_key=None, skip_index=None):
         """Every rectangle on the canvas, for snapping and overlap checks."""
         result = []
@@ -281,6 +416,17 @@ class LayoutEditor(QWidget):
                 return dict(index=index, anchor=QPointF(scene_pos), start=dict(rect), moved=False)
         return None
 
+    def snap_rect(self, target, skip_key, skip_index):
+        """Pull an edge onto a neighbour within reach, so blocks click together."""
+        for other in self.occupied_rects(skip_key, skip_index):
+            for candidate in (other['x']-target['w'], other['x']+other['w']):
+                if abs(target['x']-candidate) <= 12:
+                    target['x'] = candidate
+            for candidate in (other['y']-target['h'], other['y']+other['h']):
+                if abs(target['y']-candidate) <= 12:
+                    target['y'] = candidate
+        return target
+
     def drag_monitor(self, item, scene_pos, drag=None):
         drag = drag or getattr(item, 'drag', None)
         if not drag:
@@ -290,22 +436,24 @@ class LayoutEditor(QWidget):
         drag['current'] = dict(x=round((drag['start']['x']+dx)/5)*5,
                                y=round((drag['start']['y']+dy)/5)*5,
                                w=drag['start']['w'], h=drag['start']['h'])
+        # Snap while dragging too: the following feel is what tells the user the
+        # two screens will actually trade the cursor.
+        self.snap_rect(drag['current'], item.key, drag['index'])
         item.prepareGeometryChange()
         item.update()
+        # Keep dragging possible past the edges of the current canvas.
+        self.scene.setSceneRect(self.scene.sceneRect().united(
+            QRectF(drag['current']['x'], drag['current']['y'],
+                   drag['current']['w'], drag['current']['h']).adjusted(-160, -160, 160, 160)))
+        if getattr(self, 'contacts', None):
+            self.contacts.prepareGeometryChange()
+            self.contacts.update()
 
     def finish_monitor_drag(self, item, drag):
         index = drag['index']
         if not drag.get('moved'):
             return
-        target = drag['current']
-        # Snap to every other screen's edges, then commit or bounce back.
-        for other in self.occupied_rects(item.key, index):
-            for candidate in (other['x']-target['w'], other['x']+other['w']):
-                if abs(target['x']-candidate) <= 12:
-                    target['x'] = candidate
-            for candidate in (other['y']-target['h'], other['y']+other['h']):
-                if abs(target['y']-candidate) <= 12:
-                    target['y'] = candidate
+        target = self.snap_rect(drag['current'], item.key, index)
         old_monitors = dict(self.monitors)
         old_node = dict(self.nodes[item.key])
         rects = [dict(r) for r in self.monitor_rects(item.key)]
