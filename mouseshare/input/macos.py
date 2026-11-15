@@ -1,4 +1,6 @@
 """Quartz event tap on its own run loop; tagged events avoid forwarding feedback."""
+import ctypes
+import ctypes.util
 import threading
 
 import ApplicationServices as AX
@@ -17,6 +19,94 @@ from .base import MARKER, BaseBackend
 from .keymap import HID_TO_MAC, MAC_CODES
 from .mac_cursor import CursorShield
 
+_SPACE_LOCK = threading.Lock()
+_SPACE_CGS = None
+
+
+def _space_cgs():
+    """Lazily bind the private CGS functions used to inspect Spaces.
+
+    Synthetic keyboard events can never trigger the system Spaces shortcuts
+    (WindowServer only honours real HID input), so the receiver has to move
+    between spaces itself and only needs the display's space list to know
+    where it may go.
+    """
+    global _SPACE_CGS
+    if _SPACE_CGS is None:
+        cg = ctypes.CDLL(ctypes.util.find_library("CoreGraphics"))
+        cf = ctypes.CDLL(ctypes.util.find_library("CoreFoundation"))
+        cg.CGSMainConnectionID.restype = ctypes.c_int
+        cg.CGSGetActiveSpace.restype = ctypes.c_uint64
+        cg.CGSGetActiveSpace.argtypes = [ctypes.c_int]
+        cg.CGSCopyManagedDisplaySpaces.restype = ctypes.c_void_p
+        cg.CGSCopyManagedDisplaySpaces.argtypes = [ctypes.c_int]
+        cf.CFRelease.restype = None
+        cf.CFRelease.argtypes = [ctypes.c_void_p]
+        _SPACE_CGS = (cg, cf, cg.CGSMainConnectionID())
+    return _SPACE_CGS
+
+
+def _swipe_space(direction):
+    """Drive the Dock's own horizontal swipe, which performs a real space
+    transition.
+
+    Field numbers are the undocumented CGS event fields yabai and
+    InstantSpaceSwitcher use: type = dock control, HID type = dock swipe,
+    horizontal motion, progress/velocity signed, phase began then ended.
+    """
+    event = Q.CGEventCreate(None)
+    if not event:
+        return False
+    Q.CGEventSetIntegerValueField(event, 55, 30)   # event type: dock control
+    Q.CGEventSetIntegerValueField(event, 110, 23)  # gesture: dock swipe
+    Q.CGEventSetIntegerValueField(event, 123, 1)   # motion: horizontal
+    Q.CGEventSetDoubleValueField(event, 124, float(direction))
+    Q.CGEventSetDoubleValueField(event, 129, float(direction) * 9999.0)
+    Q.CGEventSetIntegerValueField(event, 132, 1)   # phase: began
+    Q.CGEventPost(Q.kCGSessionEventTap, event)
+    Q.CGEventSetIntegerValueField(event, 132, 4)   # phase: ended
+    Q.CGEventPost(Q.kCGSessionEventTap, event)
+    return True
+
+
+def switch_space(delta):
+    """Move delta spaces to the right (1) or left (-1) and return True when a
+    transition was started.
+
+    CGSManagedDisplaySetCurrentSpace is deliberately not used: it changes the
+    display's space id without performing a transition, which leaves fullscreen
+    windows (a fullscreen VM, for instance) painted on top of the desktop you
+    switch back to. The Dock gesture goes through the normal transition, so
+    fullscreen apps hide and restore exactly like the system shortcut.
+    """
+    try:
+        with _SPACE_LOCK:
+            cg, cf, conn = _space_cgs()
+            import objc
+            raw = cg.CGSCopyManagedDisplaySpaces(conn)
+            if not raw:
+                return False
+            info = objc.objc_object(c_void_p=raw)
+            active = cg.CGSGetActiveSpace(conn)
+            spaces = None
+            for display in info:
+                try:
+                    ids = [int(space["id64"]) for space in display["Spaces"]]
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if active in ids:
+                    spaces = ids
+                    break
+            cf.CFRelease(raw)
+            if not spaces:
+                return False
+            target = spaces.index(active) + delta
+            if target < 0 or target >= len(spaces):
+                return False  # the system shortcut stops at the outermost spaces
+        return _swipe_space(1 if delta > 0 else -1)
+    except Exception:
+        return False
+
 
 class MacBackend(BaseBackend):
     copy_modifier = {227, 231}
@@ -31,6 +121,7 @@ class MacBackend(BaseBackend):
         self._cursor_shield = CursorShield()
         self.captured_moves = 0
         self.tap_interruptions = 0
+        self._swallowed_arrows = set()
 
     def reconcile_physical(self):
         # Only called while this computer owns its physical input. Never clear
@@ -286,10 +377,34 @@ class MacBackend(BaseBackend):
                                ({227, 231}, Q.kCGEventFlagMaskCommand)]:
                 if self.injected_keys & keys:
                     flags |= mask
+            if self._space_switch_shortcut(code, flags, down):
+                return
             event = Q.CGEventCreateKeyboardEvent(None, code, down)
             Q.CGEventSetIntegerValueField(event, Q.kCGKeyboardEventAutorepeat, int(repeat))
             Q.CGEventSetFlags(event, flags)
             self.post(event)
+
+    def _space_switch_shortcut(self, code, flags, down):
+        """Interpret Ctrl+Left/Right as a Spaces switch performed in-process.
+
+        The system Spaces shortcuts ignore synthetic events entirely, so the
+        plain injection would deliver nothing: apps would only see a bare
+        Control press while the desktop never moves. Matching key-ups of a
+        swallowed arrow are swallowed as well.
+        """
+        if code not in (123, 124):  # left / right arrow
+            return False
+        if not down:
+            if code in self._swallowed_arrows:
+                self._swallowed_arrows.discard(code)
+                return True
+            return False
+        if flags != Q.kCGEventFlagMaskControl:  # exactly Control, no Shift/Alt/Cmd
+            return False
+        if not switch_space(1 if code == 124 else -1):
+            return False
+        self._swallowed_arrows.add(code)
+        return True
 
     def button(self, button, down):
         with self.inject_lock:
