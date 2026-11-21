@@ -32,7 +32,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 Name: "firewall"; Description: "Allow MouseShare on private local networks (recommended)"; Flags: checkedonce
-Name: "lockservice"; Description: "Control this computer while locked or before sign-in (installs a Windows service)"; Flags: unchecked
+Name: "lockservice"; Description: "Control this computer while locked or before sign-in (installs a Windows service)"; Flags: checkedonce
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
