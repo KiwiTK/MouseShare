@@ -120,3 +120,14 @@ def test_allow_locked_still_accepts_an_enter(tmp_path):
     session = engine.session
     engine.receive({'type': 'enter', 'edge': 'right', 'position': 0.5}, session)
     assert engine.state == 'receiving' and backend.moves
+
+
+def test_allow_locked_locked_oserror_is_transient(tmp_path):
+    """With lock-screen control opted in, a locked OSError must not pause."""
+    engine, now, backend = setup(tmp_path, locked=True, allow_locked=True)
+    engine.handle_failure(OSError('relay pipe unavailable'))
+    assert not engine.paused and not engine.auto_paused and not engine.error
+    # The next tick re-evaluates: allow_locked keeps the machine announceable.
+    drive(engine, now)
+    assert engine.available
+    assert engine.session.messages[-1]['type'] == 'available'

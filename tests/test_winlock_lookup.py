@@ -70,3 +70,16 @@ def test_find_winlogon_pid_survives_pysid_in_name_slot():
     winlock = load_winlock()
     entries = [(1, 432, 'winlogon.exe', FakeSid())]
     assert winlock.find_winlogon_pid(entries, 1) == 432
+
+
+def test_session_has_app_matches_by_image_name():
+    winlock = load_winlock()
+    sid = FakeSid()
+    entries = [
+        (1, 100, 'explorer.exe', sid),
+        (1, 300, 'MouseShare.exe', sid),
+        (1, 500, 'MouseShareService.exe', sid),  # service exe must not count
+    ]
+    assert winlock.session_has_app(entries, 1)
+    assert not winlock.session_has_app(entries, 2)
+    assert not winlock.session_has_app([(1, 100, 'explorer.exe', sid)], 1)

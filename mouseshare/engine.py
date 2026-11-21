@@ -173,8 +173,13 @@ class Engine:
         (tick() clears it on unlock) instead of latching a permanent pause.
         """
         self.last_failure = f'{type(exc).__name__}: {str(exc)[:160]}'
-        if (isinstance(exc, OSError) and not self.desktop_ok()
-                and not self.settings.get('allow_locked', False)):
+        # A locked desktop turns every SendInput / relay attempt into OSError.
+        # Whether or not the user opted into lock-screen control, that is a
+        # temporary desktop condition: flag it blocked (tick() re-evaluates in
+        # half a second and lifts the flag immediately when allow_locked keeps
+        # the machine announceable) instead of latching the 5 s auto-pause,
+        # which used to make every retry during lock feel like a dead edge.
+        if isinstance(exc, OSError) and not self.desktop_ok():
             self.desktop_live = False
             if not self.system_blocked:
                 self.system_blocked = True

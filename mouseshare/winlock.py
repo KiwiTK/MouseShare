@@ -213,6 +213,95 @@ def console_user_sid():
         return None
 
 
+# --------------------------------------------------------------------------
+# Launching the app at sign-in (matches how "无界鼠标" is instantly usable)
+# --------------------------------------------------------------------------
+class STARTUPINFOW(ctypes.Structure):
+    _fields_ = [('cb', wt.DWORD), ('lpReserved', wt.LPWSTR), ('lpDesktop', wt.LPWSTR),
+                ('lpTitle', wt.LPWSTR), ('dwX', wt.DWORD), ('dwY', wt.DWORD),
+                ('dwXSize', wt.DWORD), ('dwYSize', wt.DWORD), ('dwXCountChars', wt.DWORD),
+                ('dwYCountChars', wt.DWORD), ('dwFillAttribute', wt.DWORD), ('dwFlags', wt.DWORD),
+                ('wShowWindow', wt.WORD), ('cbReserved2', wt.WORD), ('lpReserved2', ctypes.c_void_p),
+                ('hStdInput', wt.HANDLE), ('hStdOutput', wt.HANDLE), ('hStdError', wt.HANDLE)]
+
+
+class PROCESS_INFORMATION(ctypes.Structure):
+    _fields_ = [('hProcess', wt.HANDLE), ('hThread', wt.HANDLE),
+                ('dwProcessId', wt.DWORD), ('dwThreadId', wt.DWORD)]
+
+
+def app_image_path():
+    return os.path.join(os.path.dirname(sys.executable), 'MouseShare.exe')
+
+
+def session_has_app(entries, session):
+    """True when MouseShare.exe is already running in the console session."""
+    for entry in entries:
+        if entry[0] == session and str(entry[2]).casefold() == 'mouseshare.exe':
+            return True
+    return False
+
+
+def spawn_app(entries, session):
+    """Start the GUI in the console session the moment someone signs in.
+
+    The HKCU Run key only fires once Explorer has worked through its startup
+    queue, which reads as "MouseShare takes forever after boot". The service
+    is already alive by then, so it starts the app from the freshly signed-in
+    winlogon token, the same way spawn_injector places the helper.
+
+    The environment block is mandatory: CreateProcessAsUser inherits the
+    service's environment, where %LOCALAPPDATA% still points at the SYSTEM
+    profile and the app would silently lose its config, identity and pairing.
+    """
+    import win32api
+    import win32con
+    import win32process
+    import win32security
+
+    exe = app_image_path()
+    if not os.path.exists(exe):
+        return  # portable layout without the GUI next to the service
+    host_pid = find_winlogon_pid(entries, session)
+    if host_pid is None:
+        return
+    process = win32process.OpenProcess(win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, host_pid)
+    try:
+        token = win32security.OpenProcessToken(
+            process, win32con.TOKEN_DUPLICATE | win32con.TOKEN_QUERY | win32con.TOKEN_ASSIGN_PRIMARY)
+        primary = win32security.DuplicateTokenEx(token, win32security.MAXIMUM_ALLOWED, None,
+                                                 win32security.SecurityImpersonation,
+                                                 win32security.SecurityPrimaryToken)
+    finally:
+        win32api.CloseHandle(process)
+    advapi = ctypes.WinDLL('advapi32', use_last_error=True)
+    advapi.CreateEnvironmentBlock.argtypes = [ctypes.POINTER(ctypes.c_void_p), wt.HANDLE, wt.BOOL]
+    advapi.DestroyEnvironmentBlock.argtypes = [ctypes.c_void_p]
+    advapi.CreateProcessAsUserW.argtypes = [wt.HANDLE, wt.LPCWSTR, wt.LPWSTR, ctypes.c_void_p,
+                                            ctypes.c_void_p, wt.BOOL, wt.DWORD, ctypes.c_void_p,
+                                            wt.LPCWSTR, ctypes.POINTER(STARTUPINFOW),
+                                            ctypes.POINTER(PROCESS_INFORMATION)]
+    env = ctypes.c_void_p()
+    if not advapi.CreateEnvironmentBlock(ctypes.byref(env), int(primary), False):
+        log('app: environment block unavailable; launching with service env')
+        env = None
+    startup = STARTUPINFOW()
+    startup.cb = ctypes.sizeof(STARTUPINFOW)
+    startup.lpDesktop = 'WinSta0\\Default'
+    info = PROCESS_INFORMATION()
+    command = ctypes.create_unicode_buffer(f'"{exe}"')
+    try:
+        if advapi.CreateProcessAsUserW(int(primary), exe, command, None, None, False,
+                                       CREATE_NO_WINDOW, env, None,
+                                       ctypes.byref(startup), ctypes.byref(info)):
+            log(f'app launched in session {session} (pid {info.dwProcessId})')
+        else:
+            log(f'app launch failed: {ctypes.WinError(ctypes.get_last_error())}')
+    finally:
+        if env:
+            advapi.DestroyEnvironmentBlock(env)
+
+
 def client_is_mouseshare(pid):
     try:
         import win32api
@@ -287,9 +376,11 @@ def supervisor(halt):
     import win32api
     import win32event
     import win32process
+    import win32ts
 
     child = None
     last_sid = None
+    last_app_check = 0.0
     while win32event.WaitForSingleObject(halt, 10000) != 0:  # wake every 10 s
         try:
             sid = console_user_sid()
@@ -311,6 +402,15 @@ def supervisor(halt):
                 exe = sys.executable
                 if not os.path.exists(PIPE_PATH):
                     child = spawn_injector(exe)
+            # Sign-in moment: start the GUI before the Run key gets a turn, so
+            # crossing works as soon as the desktop appears (see spawn_app).
+            if sid and time.time() - last_app_check >= 30:
+                last_app_check = time.time()
+                session = K32.WTSGetActiveConsoleSessionId()
+                if session:
+                    entries = win32ts.WTSEnumerateProcesses(win32ts.WTS_CURRENT_SERVER_HANDLE)
+                    if not session_has_app(entries, session):
+                        spawn_app(entries, session)
         except Exception as exc:
             log(f'supervisor error: {exc}')
     if child is not None:
