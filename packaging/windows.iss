@@ -1,5 +1,5 @@
 #define AppName "MouseShare"
-#define AppVersion "0.8.1"
+#define AppVersion "0.8.2"
 #define SourceDir "..\dist\MouseShare"
 
 [Setup]
@@ -52,6 +52,7 @@ Filename: "{app}\MouseShareService.exe"; Parameters: "--install"; Flags: runhidd
 Filename: "{app}\MouseShare.exe"; Description: "Launch MouseShare"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 [UninstallRun]
+Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM MouseShare.exe"; Flags: runhidden
 Filename: "{app}\MouseShareService.exe"; Parameters: "--uninstall"; Flags: runhidden
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""MouseShare LAN TCP"""; Flags: runhidden
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""MouseShare LAN UDP"""; Flags: runhidden
@@ -60,4 +61,18 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "MouseShare"; Flags: uninsdeletevalue
 Root: HKCU; Subkey: "Software\Classes\Directory\Background\shell\MouseSharePaste"; Flags: dontcreatekey uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\Directory\shell\MouseSharePaste"; Flags: dontcreatekey uninsdeletekey
+
+[Code]
+// Stop running instances before replacing files, so upgrading never hits
+// "DeleteFile failed; code 5" while the old build is still running.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+begin
+  Result := '';
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM MouseShare.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM MouseShareService.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\sc.exe'), 'stop MouseShareInputService', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(500);
+end;
 
