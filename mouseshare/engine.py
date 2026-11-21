@@ -59,6 +59,13 @@ class Engine:
         self.peer_available = self.paused = self.system_blocked = False
         self.desktop_live = True
         self.error = ''
+        # A backend OSError used to latch paused=True for good, so a locked
+        # Windows desktop left the UI saying 'connected but sharing stopped'
+        # until someone clicked resume or restarted the app. Remember when a
+        # pause was automatic: tick() can lift it, a user's own pause stays.
+        self.auto_paused = False
+        self.auto_paused_at = 0.0
+        self.last_failure = ''
         self.route_edge = None
         self.input_epoch = 0
         self.last_position = self.remote_position = (0, 0)
@@ -147,10 +154,40 @@ class Engine:
                     self.handle(event)
                 self.tick()
             except Exception as exc:
-                self.error = tr('共享已安全停止（{p0}），请重新检查权限', p0=type(exc).__name__)
-                self.paused = True
-                self.release(True)
-                self.status()
+                self.handle_failure(exc)
+
+    def desktop_ok(self):
+        """Best-effort input-desktop check that never raises from a stub backend."""
+        try:
+            return bool(self.backend and self.backend.desktop_active())
+        except Exception:
+            return True
+
+    def handle_failure(self, exc):
+        """Contain a backend failure without killing the input-owner thread.
+
+        Win+L moves Windows to the Winlogon secure desktop. There, user-mode
+        SendInput is rejected and the Qt cursor shield cannot create its
+        windows, so an in-flight handoff raises OSError. That is a temporary
+        desktop condition, not a revoked permission: flag the desktop blocked
+        (tick() clears it on unlock) instead of latching a permanent pause.
+        """
+        self.last_failure = f'{type(exc).__name__}: {str(exc)[:160]}'
+        if (isinstance(exc, OSError) and not self.desktop_ok()
+                and not self.settings.get('allow_locked', False)):
+            self.desktop_live = False
+            if not self.system_blocked:
+                self.system_blocked = True
+                self.announce()
+            self.release(True)
+            self.status()
+            return
+        self.error = tr('共享已安全停止（{p0}），请重新检查权限', p0=type(exc).__name__)
+        self.paused = True
+        self.auto_paused = True
+        self.auto_paused_at = self.clock()
+        self.release(True)
+        self.status()
 
     def send(self, message):
         if self.flow and message['type'] not in {'available', 'blocked'}:
@@ -203,7 +240,14 @@ class Engine:
             screen = self.backend.screen_info()
             position = (native(point, screen) if point else
                         project(entry_point(edge, ratio, self.backend.bounds()), screen))
-            self.backend.move(*position)
+            try:
+                self.backend.move(*position)
+            except OSError:
+                # The secure desktop rejects SendInput. Failing to park the
+                # cursor must not escape: run() calls release() from its own
+                # exception handler, and a second OSError would kill the
+                # input-owner thread outright (only a restart would help).
+                pass
             self.last_position = position
         if tell_peer:
             for session in targets:
@@ -269,6 +313,7 @@ class Engine:
         action = event['action']
         if action == 'pause':
             self.paused = not self.paused
+            self.auto_paused = False  # explicit user intent; never auto-resume
             self.release(True)
             self.announce()
         elif action == 'panic':
@@ -636,6 +681,7 @@ class Engine:
                 self.broadcast(dict(type='screen', screen=screen), 'monitors-v1')
                 self.auxiliary(dict(type='screens_changed'))
             active = self.backend.desktop_active()
+            was_blocked = self.system_blocked
             self.desktop_live = active
             blocked = not active and not self.settings.get('allow_locked', False)
             if blocked != self.system_blocked:
@@ -649,6 +695,14 @@ class Engine:
                 # local cursor — so without this, opting in strands the local
                 # pointer and makes the machine refuse every incoming handoff.
                 self.release(True)
+            if self.auto_paused and ((active and was_blocked)
+                                    or now - self.auto_paused_at > 5):
+                # The backend failed while the desktop was unavailable (or a
+                # transient GUI stall timed out the cursor shield). Retry once
+                # the desktop is back instead of requiring a manual resume.
+                self.paused = self.auto_paused = False
+                self.error = ''
+                self.announce()
         if self.state == 'pending' and now-self.pending_since > 1.5:
             self.handoff_timeouts += 1
             self.release(True)
@@ -678,7 +732,8 @@ class Engine:
                     edge_pressure_moves=getattr(self.backend, 'edge_pressure_moves', 0),
                     stationary_hook_moves=getattr(self.backend, 'stationary_hook_moves', 0),
                     recovered_releases=self.backend.recovered_releases,
-                    tap_interruptions=getattr(self.backend, 'tap_interruptions', 0))
+                    tap_interruptions=getattr(self.backend, 'tap_interruptions', 0),
+                    last_failure=self.last_failure)
 
     def flow_matches(self, message, session):
         return not supports(session, 'multi-v1') or bool(self.flow and message.get('flow') == self.flow)
@@ -727,10 +782,15 @@ class Engine:
             if self.state == 'standby' and session is self.session and self.flow_matches(message, session):
                 self.backend.cursor_hidden(False)
                 self.state = 'local'
-            if not self.available or self.backend.keys or self.backend.buttons or self.state != 'local':
+            # tick() samples the desktop every 0.5 s; an enter arriving in
+            # that window would otherwise inject into the secure desktop and
+            # raise OSError. Ask once more at the moment of acceptance.
+            desktop_ok = True if self.settings.get('allow_locked', False) else self.desktop_ok()
+            if (not self.available or not desktop_ok or self.backend.keys
+                    or self.backend.buttons or self.state != 'local'):
                 if self.edge_debug():
                     self.edge_log(f"enter refused peer={key[:8]} state={self.state} available={self.available} "
-                                  f"system_blocked={self.system_blocked} desktop={self.desktop_live} "
+                                  f"system_blocked={self.system_blocked} desktop={desktop_ok} "
                                   f"keys={sorted(self.backend.keys)} buttons={sorted(self.backend.buttons)}")
                 reply = {'type': 'release'}
                 if message.get('flow'):
