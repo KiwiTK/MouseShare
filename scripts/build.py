@@ -212,6 +212,12 @@ def main():
             "-ov", "-format", "UDZO", target)
     elif sys.platform == "win32":
         licenses(DIST / "MouseShare/licenses")
+        log("building the lock-screen service helper")
+        run(sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile", "--console",
+            "--name", "MouseShareService", "--noupx", "--exclude-module", "tkinter",
+            "--exclude-module", "unittest", "--exclude-module", "PySide6",
+            "--icon", str(ASSETS / "MouseShare.ico"), str(ROOT / "service_launcher.py"), timeout=900)
+        shutil.copyfile(DIST / "MouseShareService.exe", DIST / "MouseShare/MouseShareService.exe")
         log("smoke testing the bundled exe")
         run(DIST / "MouseShare/MouseShare.exe", "--smoke-test", timeout=300)
         run(DIST / "MouseShare/MouseShare.exe", "--drop-smoke-test", timeout=300)

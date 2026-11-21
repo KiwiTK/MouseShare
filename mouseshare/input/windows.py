@@ -6,6 +6,7 @@ from ctypes import wintypes as W
 from ..i18n import tr
 from .base import MARKER, BaseBackend
 from .keymap import HID_TO_WIN, WIN_SCANS
+from ..winrelay import LockedRelay, serialize_input
 from .windows_cursor import WindowsCursorShield
 
 BUTTON_VKS = {1: 0x01, 2: 0x02, 3: 0x04, 4: 0x05, 5: 0x06}
@@ -130,11 +131,20 @@ class WindowsBackend(BaseBackend):
         self.started = threading.Event()
         self.mouse_hook = self.key_hook = None
         self._cursor_shield = WindowsCursorShield()
+        # Lock-screen relay: the engine flips relay_enabled when the user opts
+        # in (allow_locked); desktop_live is refreshed by desktop_active().
+        self.relay = LockedRelay()
+        self.relay_enabled = False
+        self.desktop_live = True
         self.captured_moves = self.edge_pressure_moves = self.stationary_hook_moves = 0
 
     def cursor_hidden(self, hidden):
-        self._cursor_shield.set_enabled(hidden)
         self.cursor_is_hidden = bool(hidden)
+        if not self.desktop_live:
+            # The Qt shield cannot create windows on the secure desktop; the
+            # relay moves the real cursor instead, which the lock screen shows.
+            return
+        self._cursor_shield.set_enabled(hidden)
 
     def focus_token(self):
         hwnd = U.GetForegroundWindow()
@@ -246,10 +256,10 @@ class WindowsBackend(BaseBackend):
 
     def capture(self, enabled):
         if enabled:
-            self._cursor_shield.set_enabled(True)
+            self.cursor_hidden(True)  # guarded: no shield while the desktop is locked
         self.captured = bool(enabled)
         if not enabled:
-            self._cursor_shield.set_enabled(False)
+            self.cursor_hidden(False)
         self.raw_absolute.clear()
         self.last = None
 
@@ -376,7 +386,19 @@ class WindowsBackend(BaseBackend):
         return U.CallNextHookEx(None, code, msg, pointer)
 
     def send(self, value):
+        records = [serialize_input(value)] if self.relay_enabled else None
+        if records and records[0] is not None and not self.desktop_live \
+                and self.relay.send_input(records):
+            return
         if U.SendInput(1, C.byref(value), C.sizeof(Input)) != 1:
+            # SendInput fails on the secure desktop (lock screen, UAC prompt).
+            # Re-check the desktop right now: the 0.5 s tick cache can be
+            # stale right after Win+L. If the helper service is there, replay
+            # through it; otherwise surface the failure as before.
+            if records and records[0] is not None and not self.desktop_active() \
+                    and self.relay.send_input(records):
+                self.desktop_live = False
+                return
             raise OSError("SendInput blocked (check application privilege level)")
 
     def move(self, x, y):
@@ -442,12 +464,15 @@ class WindowsBackend(BaseBackend):
     def desktop_active(self):
         desktop = U.OpenInputDesktop(0, False, 1)
         if not desktop:
+            self.desktop_live = False
             return False
         try:
             name = C.create_unicode_buffer(256)
             needed = W.DWORD()
-            return bool(U.GetUserObjectInformationW(desktop, 2, name, C.sizeof(name), C.byref(needed))
-                        and name.value.casefold() == "default")
+            active = bool(U.GetUserObjectInformationW(desktop, 2, name, C.sizeof(name), C.byref(needed))
+                          and name.value.casefold() == "default")
+            self.desktop_live = active
+            return active
         finally:
             U.CloseDesktop(desktop)
 

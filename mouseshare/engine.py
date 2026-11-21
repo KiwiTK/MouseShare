@@ -680,10 +680,12 @@ class Engine:
                 self.last_screen = screen
                 self.broadcast(dict(type='screen', screen=screen), 'monitors-v1')
                 self.auxiliary(dict(type='screens_changed'))
+            allow_locked = bool(self.settings.get('allow_locked', False))
+            self.backend.relay_enabled = allow_locked
             active = self.backend.desktop_active()
             was_blocked = self.system_blocked
             self.desktop_live = active
-            blocked = not active and not self.settings.get('allow_locked', False)
+            blocked = not active and not allow_locked
             if blocked != self.system_blocked:
                 self.system_blocked = blocked
                 self.release(True)

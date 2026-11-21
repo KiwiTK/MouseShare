@@ -17,7 +17,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest==9.0.2", "pyinstaller==6.22.3", "ruff==0.14.10"]
+dev = ["pytest==9.0.2", "pyinstaller==6.22.3", "ruff==0.14.10",
+       "pywin32==311; sys_platform == 'win32'"]
 
 [project.scripts]
 mouseshare = "mouseshare.app:main"

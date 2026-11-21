@@ -32,6 +32,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 Name: "firewall"; Description: "Allow MouseShare on private local networks (recommended)"; Flags: checkedonce
+Name: "lockservice"; Description: "Control this computer while locked or before sign-in (installs a Windows service)"; Flags: unchecked
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -47,9 +48,11 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""MouseShare LAN UDP"""; Flags: runhidden; Tasks: firewall
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""MouseShare LAN TCP"" dir=in action=allow program=""{app}\MouseShare.exe"" protocol=TCP localport=24872 profile=private remoteip=localsubnet"; Flags: runhidden; Tasks: firewall
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""MouseShare LAN UDP"" dir=in action=allow program=""{app}\MouseShare.exe"" protocol=UDP localport=24871 profile=private remoteip=localsubnet"; Flags: runhidden; Tasks: firewall
+Filename: "{app}\MouseShareService.exe"; Parameters: "--install"; Flags: runhidden; Tasks: lockservice
 Filename: "{app}\MouseShare.exe"; Description: "Launch MouseShare"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 [UninstallRun]
+Filename: "{app}\MouseShareService.exe"; Parameters: "--uninstall"; Flags: runhidden
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""MouseShare LAN TCP"""; Flags: runhidden
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""MouseShare LAN UDP"""; Flags: runhidden
 
