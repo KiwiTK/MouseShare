@@ -140,16 +140,20 @@ def run_injector():
     import win32security
 
     log(f'injector starting (session={K32.WTSGetActiveConsoleSessionId()})')
-    user_sid = console_user_sid()
-    if user_sid:
-        sddl = f'D:P(A;;GA;;;SY)(A;;GA;;;{user_sid})'
-    else:
-        sddl = 'D:P(A;;GA;;;SY)'  # pre-login: SYSTEM only, fine — nobody to serve yet
-    attributes = pywintypes.SECURITY_ATTRIBUTES()
-    attributes.SECURITY_DESCRIPTOR = win32security.ConvertStringSecurityDescriptorToSecurityDescriptor(sddl, 1)
     client_pid = getattr(win32pipe, 'GetNamedPipeClientProcessId', None)
 
     while True:
+        # The DACL must encode whoever is on the console *now*. The injector
+        # starts before the first sign-in (no user yet -> SYSTEM-only pipe),
+        # and the supervisor restarts it on user change; recomputing here also
+        # covers fast user switches between client connections.
+        user_sid = console_user_sid()
+        if user_sid:
+            sddl = f'D:P(A;;GA;;;SY)(A;;GA;;;{user_sid})'
+        else:
+            sddl = 'D:P(A;;GA;;;SY)'  # pre-login: SYSTEM only, fine — nobody to serve yet
+        attributes = pywintypes.SECURITY_ATTRIBUTES()
+        attributes.SECURITY_DESCRIPTOR = win32security.ConvertStringSecurityDescriptorToSecurityDescriptor(sddl, 1)
         pipe = win32pipe.CreateNamedPipe(
             PIPE_PATH, win32pipe.PIPE_ACCESS_DUPLEX,
             win32pipe.PIPE_TYPE_BYTE | win32pipe.PIPE_READMODE_BYTE | win32pipe.PIPE_WAIT,
@@ -285,8 +289,20 @@ def supervisor(halt):
     import win32process
 
     child = None
+    last_sid = None
     while win32event.WaitForSingleObject(halt, 10000) != 0:  # wake every 10 s
         try:
+            sid = console_user_sid()
+            if child is not None and sid != last_sid:
+                # The injector's pipe DACL encodes the console user captured at
+                # its startup. A boot-time injector serves SYSTEM only, so once
+                # someone signs in the app could never open the pipe: restart
+                # the helper so it is rebuilt for the signed-in user.
+                log('console user changed; restarting injector')
+                win32api.TerminateProcess(child, 0)
+                win32api.CloseHandle(child)
+                child = None
+            last_sid = sid
             if child is not None and win32process.GetExitCodeProcess(child) != 259:  # STILL_ACTIVE
                 log('injector exited; respawning')
                 win32api.CloseHandle(child)
