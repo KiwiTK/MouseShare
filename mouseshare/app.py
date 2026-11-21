@@ -218,6 +218,7 @@ class MainWindow(QMainWindow):
         footer.setSpacing(4)
         footer.addWidget(text_label(f"VERSION {__version__}", "eyebrow"))
         footer.addWidget(text_label(tr('让桌面上的电脑连在一起。'), "hint", True))
+        footer.addWidget(text_label(tr('有 bug 请联系微信：kiwi37'), "hint", True))
         rail.addLayout(footer)
         outer.addWidget(sidebar)
         outer.addWidget(self.stack, 1)
