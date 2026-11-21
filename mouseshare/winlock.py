@@ -368,26 +368,35 @@ def install():
     import win32serviceutil
 
     exe = sys.executable
+    log(f'install requested from {exe}')
     # Upgrade path: drop any previously registered service first, so its
     # start type (e.g. an old DEMAND_START install) gets rewritten too.
     try:
         win32serviceutil.StopService(SERVICE_NAME)
-    except win32service.error:
-        pass
+        log('install: old service stopped')
+    except win32service.error as exc:
+        log(f'install: stop old service: {exc}')
     try:
         win32serviceutil.RemoveService(SERVICE_NAME)
-    except win32service.error:
-        pass
+        log('install: old service removed')
+    except win32service.error as exc:
+        log(f'install: remove old service: {exc}')
     # Without an explicit startType pywin32 defaults to SERVICE_DEMAND_START,
     # which means the SCM never starts the service after a reboot.
-    win32serviceutil.InstallService(exeName=exe, exeArgs='--service-run',
-                                    pythonClassString='', serviceName=SERVICE_NAME,
-                                    displayName=SERVICE_DISPLAY,
-                                    startType=win32service.SERVICE_AUTO_START)
+    try:
+        win32serviceutil.InstallService(exeName=exe, exeArgs='--service-run',
+                                        pythonClassString='', serviceName=SERVICE_NAME,
+                                        displayName=SERVICE_DISPLAY,
+                                        startType=win32service.SERVICE_AUTO_START)
+        log('install: service registered with AUTO_START')
+    except Exception as exc:
+        log(f'install: FAILED to register service: {exc!r}')
+        raise
     try:
         win32serviceutil.StartService(SERVICE_NAME)
+        log('install: service started')
     except Exception as exc:
-        log(f'start after install: {exc}')
+        log(f'install: start after install failed: {exc}')
     print(f'{SERVICE_NAME} installed from {exe}')
 
 
