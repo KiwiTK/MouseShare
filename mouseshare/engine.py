@@ -94,6 +94,7 @@ class Engine:
         self._edge_directory = None
         self._contact_signature = None
         self._last_reset = 0.0
+        self._blocked_logged = 0.0
 
     @property
     def available(self):
@@ -565,6 +566,13 @@ class Engine:
                     self.handoff_point = (normalized(entry_point(side, self.edge_ratio(side, self.last_position, monitor),
                                                                 monitor), screen) if len(screen['monitors']) > 1 else None)
                     self.begin(session, side, target_ratio, point=target_point)
+            elif target and self.available and now-self._blocked_logged > 1:
+                # A mapped target existed but held input vetoed the crossing.
+                # Without this line the refusal is invisible, which is exactly
+                # how a single phantom key reads as "edge switching is broken".
+                self._blocked_logged = now
+                self.edge_log(f"cross-blocked keys={sorted(self.backend.keys)} "
+                              f"buttons={sorted(self.backend.buttons)} target={target[0][:8]} side={target[1]}")
         elif kind in {'key', 'button'}:
             self.edge_target = None
 

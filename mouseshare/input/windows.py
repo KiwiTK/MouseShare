@@ -8,6 +8,8 @@ from .base import MARKER, BaseBackend
 from .keymap import HID_TO_WIN, WIN_SCANS
 from .windows_cursor import WindowsCursorShield
 
+BUTTON_VKS = {1: 0x01, 2: 0x02, 3: 0x04, 4: 0x05, 5: 0x06}
+
 U = C.WinDLL("user32", use_last_error=True)
 K = C.WinDLL("kernel32", use_last_error=True)
 ULONG_PTR = C.c_size_t
@@ -85,6 +87,10 @@ U.UnhookWindowsHookEx.argtypes = [W.HANDLE]
 U.SendInput.argtypes = [W.UINT, C.POINTER(Input), C.c_int]
 U.SendInput.restype = W.UINT
 U.GetForegroundWindow.restype = W.HWND
+U.MapVirtualKeyW.argtypes = [W.UINT, W.UINT]
+U.MapVirtualKeyW.restype = W.UINT
+U.GetAsyncKeyState.argtypes = [C.c_int]
+U.GetAsyncKeyState.restype = C.c_short
 U.GetCursorPos.argtypes = [C.POINTER(W.POINT)]
 U.GetCursorPos.restype = W.BOOL
 U.GetWindowThreadProcessId.argtypes = [W.HWND, C.POINTER(W.DWORD)]
@@ -409,6 +415,29 @@ class WindowsBackend(BaseBackend):
                 value = Input(type=0)
                 value.mi = MouseInput(0, 0, int(amount * 120) & 0xFFFFFFFF, flags, 0, MARKER)
                 self.send(value)
+
+    def reconcile_physical(self):
+        # Only called while this computer owns its physical input. Windows
+        # silently drops low-level hook events when the hook thread stalls
+        # (games, fullscreen transitions, hook restarts), so a key or button
+        # can stay registered as held forever; one phantom key then blocks
+        # every edge crossing while manual switching still works. Ask the OS
+        # for the live state and clear only what it reports as up — never a
+        # key the user is genuinely holding, never the receiver's synthetic
+        # state (injected_keys is a separate set).
+        for key in tuple(self.keys):
+            scan = HID_TO_WIN.get(key)
+            vk = U.MapVirtualKeyW(scan & 0xFF, 1) if scan is not None else 0  # MAPVK_VSC_TO_VK
+            if not vk or U.GetAsyncKeyState(vk) & 0x8000:
+                continue
+            self.recovered_releases += 1
+            self.physical(dict(type='key', key=key, down=False))
+        for button in tuple(self.buttons):
+            vk = BUTTON_VKS.get(button)
+            if vk is None or U.GetAsyncKeyState(vk) & 0x8000:
+                continue
+            self.recovered_releases += 1
+            self.physical(dict(type='button', button=button, down=False))
 
     def desktop_active(self):
         desktop = U.OpenInputDesktop(0, False, 1)
