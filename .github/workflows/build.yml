@@ -1,11 +1,21 @@
 name: Build and test
 
+# workflow_dispatch runs do not inherit the commit message as their title;
+# allow the caller to supply a human-readable label such as "v0.8.1：修复锁屏控制".
+run-name: ${{ inputs.run_label || github.event.head_commit.message || format('Build and test #{0}', github.run_number) }}
+
 on:
   push:
     branches: [main]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      run_label:
+        description: 'Title shown in the Actions list, e.g. v0.8.1：修复锁屏控制'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
