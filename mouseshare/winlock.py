@@ -318,6 +318,18 @@ def supervisor(halt):
         win32api.CloseHandle(child)
 
 
+def find_winlogon_pid(entries, session):
+    """Return the pid of winlogon.exe running in the active console session.
+
+    WTSEnumerateProcesses rows are (session_id, pid, image_name, user_sid);
+    the fourth element is a PySID object, never the image name.
+    """
+    for entry in entries:
+        if entry[0] == session and str(entry[2]).casefold() == 'winlogon.exe':
+            return entry[1]
+    return None
+
+
 def spawn_injector(exe):
     import win32api
     import win32con
@@ -328,11 +340,8 @@ def spawn_injector(exe):
     session = K32.WTSGetActiveConsoleSessionId()
     if not session:
         return None
-    host_pid = None
-    for entry in win32ts.WTSEnumerateProcesses(win32ts.WTS_CURRENT_SERVER_HANDLE):
-        if entry[0] == session and entry[3].casefold() == 'winlogon.exe':
-            host_pid = entry[1]
-            break
+    host_pid = find_winlogon_pid(
+        win32ts.WTSEnumerateProcesses(win32ts.WTS_CURRENT_SERVER_HANDLE), session)
     if host_pid is None:
         log('no winlogon.exe in the console session yet')
         return None
