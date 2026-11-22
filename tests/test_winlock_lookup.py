@@ -152,5 +152,11 @@ def test_no_misattributed_pywin32_api_in_source():
                     'int(info.',
                     # CreateEnvironmentBlock lives in userenv.dll, not advapi32.
                     'advapi.CreateEnvironmentBlock',
-                    'advapi.DestroyEnvironmentBlock'):
+                    'advapi.DestroyEnvironmentBlock',
+                    # win32pipe only owns pipe management; ReadFile/WriteFile/
+                    # CloseHandle live in win32file (real bug: the injector
+                    # died with AttributeError right after "app connected").
+                    'win32pipe.ReadFile',
+                    'win32pipe.WriteFile',
+                    'win32pipe.CloseHandle'):
         assert pattern not in src, pattern

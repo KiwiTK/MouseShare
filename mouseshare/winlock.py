@@ -145,6 +145,7 @@ def ensure_input_desktop():
 # --------------------------------------------------------------------------
 def run_injector():
     import pywintypes
+    import win32file
     import win32pipe
     import win32security
 
@@ -173,18 +174,22 @@ def run_injector():
             # ERROR_PIPE_CONNECTED: the client landed between CreateNamedPipe
             # and ConnectNamedPipe — the connection is valid, keep it.
             if getattr(exc, 'winerror', None) != 535:
-                win32pipe.CloseHandle(pipe)
+                win32file.CloseHandle(pipe)
                 continue
         if client_pid is not None and not client_is_mouseshare(client_pid(pipe)):
             log('rejected pipe client (unknown image)')
             win32pipe.DisconnectNamedPipe(pipe)
-            win32pipe.CloseHandle(pipe)
+            win32file.CloseHandle(pipe)
             continue
         log('app connected')
         buffer = b''
         try:
             while True:
-                chunk = win32pipe.ReadFile(pipe, 65536)
+                # ReadFile/CloseHandle live in win32file — win32pipe only owns
+                # pipe management, and ReadFile returns (hr, data).
+                hr, chunk = win32file.ReadFile(pipe, 65536)
+                if hr not in (0, 234):  # ERROR_MORE_DATA keeps the payload
+                    break
                 if not chunk:
                     break
                 buffer += chunk
@@ -194,7 +199,7 @@ def run_injector():
         except (OSError, pywintypes.error):
             pass  # client went away (unlock, app exit) — wait for the next one
         win32pipe.DisconnectNamedPipe(pipe)
-        win32pipe.CloseHandle(pipe)
+        win32file.CloseHandle(pipe)
         log('app disconnected')
 
 
