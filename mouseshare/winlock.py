@@ -399,8 +399,10 @@ def spawn_app(entries, session, config_dir=None):
 
     The HKCU Run key only fires once Explorer has worked through its startup
     queue, which reads as "MouseShare takes forever after boot". The service
-    is already alive by then, so it starts the app from the freshly signed-in
-    winlogon token, the same way spawn_injector places the helper.
+    is already alive by then, so it starts the app from the signed-in user's
+    own token (WTSQueryUserToken). The pre-logon spawn (config_dir set) keeps
+    the winlogon token: nobody is signed in yet, and the app must run as
+    SYSTEM to reach the pre-logon pipe.
 
     The environment block is mandatory: CreateProcessAsUser inherits the
     service's environment, where %LOCALAPPDATA% still points at the SYSTEM
@@ -414,20 +416,37 @@ def spawn_app(entries, session, config_dir=None):
     import win32api
     import win32con
     import win32security
+    import win32ts
 
     exe = app_image_path()
     if not os.path.exists(exe):
         return 0  # portable layout without the GUI next to the service
-    host_pid = find_winlogon_pid(entries, session)
-    if host_pid is None:
-        return 0
-    process = win32api.OpenProcess(win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, host_pid)
-    try:
-        token = win32security.OpenProcessToken(
-            process, win32con.TOKEN_DUPLICATE | win32con.TOKEN_QUERY | win32con.TOKEN_ASSIGN_PRIMARY)
-        primary = duplicate_primary_token(token)
-    finally:
-        win32api.CloseHandle(process)
+    primary = None
+    if config_dir is None:
+        # Post-sign-in the GUI must run under the *user's* token, not the
+        # winlogon one: winlogon is SYSTEM, so a winlogon-token GUI reads the
+        # SYSTEM profile (empty identity/pairing) and — since the stray
+        # pre-logon cleanup landed — is killed by the supervisor seconds
+        # after launch, a spawn/kill loop that reads as "peer disappeared".
+        try:
+            user_token = win32ts.WTSQueryUserToken(session)
+            try:
+                primary = duplicate_primary_token(user_token)
+            finally:
+                K32.CloseHandle(user_token)
+        except Exception as exc:
+            log(f'app: user token unavailable ({exc}); falling back to winlogon token')
+    if primary is None:
+        host_pid = find_winlogon_pid(entries, session)
+        if host_pid is None:
+            return 0
+        process = win32api.OpenProcess(win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, host_pid)
+        try:
+            token = win32security.OpenProcessToken(
+                process, win32con.TOKEN_DUPLICATE | win32con.TOKEN_QUERY | win32con.TOKEN_ASSIGN_PRIMARY)
+            primary = duplicate_primary_token(token)
+        finally:
+            win32api.CloseHandle(process)
     # Python 3.13 removed int() support on ctypes c_void_p (it chokes on the
     # raw buffer bytes); the handle must go through .value explicitly.
     env = ctypes.c_void_p()

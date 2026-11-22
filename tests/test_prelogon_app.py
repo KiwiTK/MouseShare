@@ -161,6 +161,22 @@ def test_profile_root_uses_drive_anchor():
     assert "Path(os.environ.get('SystemDrive', 'C:')) / 'Users'" not in src
 
 
+def test_signin_spawn_uses_user_token_not_winlogon():
+    """Post-sign-in GUI must run under the user's token, not winlogon's.
+
+    Regression (0.8.31): every spawn used the winlogon (SYSTEM) token, so the
+    signed-in GUI was SYSTEM-owned, read the SYSTEM profile (empty identity
+    and pairing), and the stray cleanup killed it seconds after each launch —
+    a spawn/kill loop whose visible symptom was "peer gone from the layout,
+    crossing broken".
+    """
+    src = _pkg_source("winlock.py")
+    assert "WTSQueryUserToken" in src
+    spawn = src.split("def spawn_app")[1].split("\ndef ")[0]
+    assert "if config_dir is None:" in spawn
+    assert spawn.index("WTSQueryUserToken") < spawn.index("find_winlogon_pid")
+
+
 def test_terminate_races_are_tolerated():
     """Terminating an already-dead injector must not raise into the loop.
 
