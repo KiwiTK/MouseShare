@@ -1,6 +1,9 @@
-MouseShare v0.8.27 · 锁屏服务第十层修复：管道读写 API 归属 win32file（Windows） / pipe I/O API belongs to win32file
+MouseShare v0.8.28 · 第十一层：重启后登录界面即可跨屏输密码（Windows） / pre-logon crossing: GUI spawned before sign-in
 
-- 修复注入助手一连上就崩溃退出的死循环（injector spawned → app connected → 数秒后 injector exited；反复重拉）：pywin32 的 win32pipe 模块只有管道管理函数（Create/Connect/Disconnect），ReadFile/WriteFile/CloseHandle 在 win32file——此前第一次读管道即抛 AttributeError，输入记录从未被读走，锁屏注入始终收不到事件。
+- 实现重启后停在登录界面即可从另一台电脑跨屏输入：服务记录最近一次登录的用户名（`C:\ProgramData\MouseShare\last_user.txt`），无人登录时以 winlogon 令牌把完整 GUI 以 SYSTEM 身份拉到控制台会话，并通过 `--config-dir` 指回该用户的真实配置目录（身份、配对、锁屏设置全部复用）——SYSTEM 身份的 GUI 能连上登录前的 SYSTEM-only 管道，输入经注入助手直达 Winlogon 桌面。
+- 登录瞬间自动交棒：检测到有人登录即终止 SYSTEM 版 GUI，并在 10 秒内以用户身份重新拉起（先杀后拉，避免双实例端口冲突）；登录后 GUI 检查间隔从 30 秒缩短到 10 秒，解锁后启动更快。
+- 安全设计：预登录配置目录校验目标必须同时存在 settings.json 与 identity.key，拒绝路径穿越，猜错用户名则静默回退为原行为；`MOUSESHARE_CONFIG_DIR` 环境变量与 `--config-dir` 参数支持配置目录覆盖。
+- v0.8.27：修复注入助手一连上就崩溃退出的死循环（injector spawned → app connected → 数秒后 injector exited；反复重拉）：pywin32 的 win32pipe 模块只有管道管理函数（Create/Connect/Disconnect），ReadFile/WriteFile/CloseHandle 在 win32file——此前第一次读管道即抛 AttributeError，输入记录从未被读走，锁屏注入始终收不到事件。
 - 同步修正 win32file.ReadFile 的 (hr, data) 元组返回（hr 仅接受 0 与 ERROR_MORE_DATA），并替换全部 3 处管道句柄关闭调用。
 - 新增静态 guard 测试禁止在管道场景误用 win32pipe.ReadFile/WriteFile/CloseHandle。
 - v0.8.26：修复服务拿不到注入助手子进程句柄（PROCESS_INFORMATION.hProcess 结构体字段取出即为 int，无需 .value）与 ERROR_PIPE_CONNECTED(535) 竞态丢连接，孤儿助手堆积刷屏消失。
