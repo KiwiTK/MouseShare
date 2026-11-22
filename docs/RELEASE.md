@@ -1,3 +1,11 @@
+MouseShare v0.8.32 · 第十六层：登录后 GUI 改用用户令牌拉起，修复 0.8.31 自引入的清理误杀（Windows） / post-logon GUI spawned with the real user token
+
+- 修复 0.8.31 自引入的回归（我担责）：服务拉起登录后 GUI 用的是 winlogon（即 SYSTEM）令牌，GUI 以 SYSTEM 身份运行——而 0.8.31 新增的 SYSTEM 残留清理会把它当成预登录孤儿误杀，spawn/kill 死循环，表现为桌面 GUI 反复闪断、布局里看不到对方、跨屏失效（偶尔热键能切是清理间隙的窗口期）。
+- 现在：有人登录（或登录交棒）时用 `WTSQueryUserToken` 取该会话的真实用户令牌拉起 GUI（与开机启动项身份一致，不再被清理误杀）；取不到用户令牌时回退 winlogon 令牌；无人登录的预登录路径保持 SYSTEM 令牌 + `--config-dir` 指向用户配置目录不变。
+- 兼容性说明：不同应用版本之间互通（发现与会话校验用的是协议版本常量），主 win / Mac 无需同步升级；但 0.8.31 在任何 Windows 上都有同样的「重启后 GUI 被误杀、启动慢」隐患，建议两台 Windows 都升到本版。
+
+---
+
 MouseShare v0.8.31 · 第十五层：预登录配置路径盘符相对化修复 + 双实例修复（Windows） / drive-relative config path & dual-instance fixes
 
 - 修复预登录跨屏不生效的根因：`Path(SystemDrive) / "Users"` 会生成盘符相对路径 `C:Users\...`（缺根分隔符，解析到服务工作目录下），配置目录校验恒败，预登录 GUI 从未被拉起（0.8.30 日志可见 `config incomplete in C:Users\Administrator\...`）。改用 `Path(SystemDrive).anchor`（`C:\`）构造绝对路径，last-user 主路径与回退扫描一并修复。
