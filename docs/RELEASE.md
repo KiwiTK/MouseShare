@@ -1,4 +1,8 @@
-MouseShare v0.8.25 · 锁屏服务第八层修复：ctypes 句柄取值 + 环境块 DLL 归属（Windows） / ctypes handle & userenv.dll fixes
+MouseShare v0.8.26 · 锁屏服务第九层修复：子进程句柄与管道竞态（Windows） / child handle & pipe race fixes
+
+- 锁屏注入助手已能在锁定会话中成功启动并连回服务（v0.8.25 日志确认 injector spawned / injector starting / app connected），本版收尾两个残留 bug：
+- 修复服务拿不到注入助手子进程句柄的问题（'int' object has no attribute 'value'）：PROCESS_INFORMATION.hProcess 是结构体字段、取出即为 int，无需再取 .value；此前失败导致服务每 10 秒重复拉起、堆积大量孤儿注入助手（日志刷 rejected pipe client）。升级安装时旧孤儿助手会被自动清理。
+- 修复注入助手连回服务时的竞态丢连接：客户端恰好在 CreateNamedPipe 与 ConnectNamedPipe 之间连入时，ConnectNamedPipe 会报 ERROR_PIPE_CONNECTED(535)，现在视为连接成功。
 
 - 主窗口左下角新增联系方式：「有 bug 请联系微信：kiwi37」。
 - 新增锁屏控制服务（Windows，安装时勾选「锁屏时仍可控制」）：以 LocalSystem 服务常驻后台，通过复制 winlogon 令牌在控制台会话里拉起注入助手，锁屏/登录前都能接收鼠标键盘——跨屏输密码解锁成为可能。服务开机自动启动。
