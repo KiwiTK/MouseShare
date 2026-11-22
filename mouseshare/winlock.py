@@ -260,11 +260,15 @@ def prelogon_config_state(profile_root=None):
     """
     import pathlib
     if profile_root is None:
-        # Path('C:') is *drive-relative* (its root is empty): appending 'Users'
-        # yields 'C:Users\...', which resolves against the service's working
-        # directory and never matches a real profile. The anchor carries the
-        # missing separator: Path('C:').anchor == 'C:\\'.
-        drive = pathlib.Path(os.environ.get('SystemDrive', 'C:')).anchor or 'C:\\'
+        # Path('C:') is *drive-relative*: appending 'Users' yields 'C:Users\...',
+        # which resolves against the service's working directory and never
+        # matches a real profile. The anchor attribute does NOT help either —
+        # for a bare drive letter it is still just 'C:' (no root separator).
+        # The separator must come from an explicit trailing backslash:
+        # Path('C:\\') / 'Users' == 'C:\\Users'.
+        drive = os.environ.get('SystemDrive', 'C:') or 'C:'
+        if not drive.endswith('\\'):
+            drive += '\\'
         profile_root = pathlib.Path(drive) / 'Users'
     profile_root = pathlib.Path(profile_root)
     try:

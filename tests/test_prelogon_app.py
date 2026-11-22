@@ -155,10 +155,35 @@ def test_profile_root_uses_drive_anchor():
     Regression (0.8.30): the pre-logon check resolved C:Users\\... against
     the service working directory, config validation always failed, and the
     pre-logon GUI never launched ("config incomplete in C:Users\\...").
+
+    Second regression (0.8.31/0.8.32): the "fix" used Path('C:').anchor — but
+    the anchor of a bare drive letter is still 'C:' (no root separator), so
+    the check kept failing with the identical message. The separator must
+    come from an explicit trailing backslash.
     """
     src = _pkg_source("winlock.py")
-    assert ".anchor" in src
+    assert ".anchor" not in src
+    assert "endswith('\\\\')" in src
     assert "Path(os.environ.get('SystemDrive', 'C:')) / 'Users'" not in src
+
+
+def test_prelogon_default_profile_root_is_absolute(tmp_path, monkeypatch):
+    """The default profile root must resolve to C:\\Users, never C:Users.
+
+    Behavioral (not just source) on purpose: 0.8.31/0.8.32 shipped
+    Path('C:').anchor as the "fix", but the anchor of a bare drive letter is
+    still 'C:' — a silent no-op that kept every reboot logging
+    'config incomplete in C:Users\\Administrator\\...' (verbatim in the
+    0.8.32 service log) and the pre-logon GUI never launched.
+    """
+    winlock = load_winlock()
+    monkeypatch.setenv('SystemDrive', 'C:')
+    monkeypatch.setattr(winlock, 'LOG_DIR', str(tmp_path))
+    (Path(tmp_path) / 'last_user.txt').write_text('Administrator', encoding='utf-8')
+    directory, reason = winlock.prelogon_config_state()
+    assert directory is None
+    assert reason.startswith('config incomplete in C:\\')
+    assert 'C:Users' not in reason
 
 
 def test_signin_spawn_uses_user_token_not_winlogon():
