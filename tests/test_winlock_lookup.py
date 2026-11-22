@@ -143,5 +143,6 @@ def test_no_misattributed_pywin32_api_in_source():
     src = pathlib.Path(winlock.__file__).read_text(encoding='utf-8')
     for pattern in ('win32process.OpenProcess',
                     'win32security.MAXIMUM_ALLOWED',
-                    'win32security.SecurityPrimaryToken'):
+                    'win32security.SecurityPrimaryToken',
+                    'DuplicateTokenEx(token, MAXIMUM_ALLOWED, None'):
         assert pattern not in src, pattern

@@ -268,7 +268,7 @@ def spawn_app(entries, session):
     try:
         token = win32security.OpenProcessToken(
             process, win32con.TOKEN_DUPLICATE | win32con.TOKEN_QUERY | win32con.TOKEN_ASSIGN_PRIMARY)
-        primary = win32security.DuplicateTokenEx(token, MAXIMUM_ALLOWED, None,
+        primary = win32security.DuplicateTokenEx(token, MAXIMUM_ALLOWED, 0,
                                                  2,   # SecurityImpersonation
                                                  1)   # PrimaryToken
     finally:
@@ -435,7 +435,6 @@ def find_winlogon_pid(entries, session):
 def spawn_injector(exe):
     import win32api
     import win32con
-    import win32process
     import win32security
     import win32ts
 
@@ -451,24 +450,31 @@ def spawn_injector(exe):
     try:
         token = win32security.OpenProcessToken(
             process, win32con.TOKEN_DUPLICATE | win32con.TOKEN_QUERY | win32con.TOKEN_ASSIGN_PRIMARY)
-        primary = win32security.DuplicateTokenEx(token, MAXIMUM_ALLOWED, None,
+        primary = win32security.DuplicateTokenEx(token, MAXIMUM_ALLOWED, 0,
                                                  2,   # SecurityImpersonation
                                                  1)   # PrimaryToken
     finally:
         win32api.CloseHandle(process)
-    startup = win32process.STARTUPINFO()
+    advapi = ctypes.WinDLL('advapi32', use_last_error=True)
+    advapi.CreateProcessAsUserW.argtypes = [wt.HANDLE, wt.LPCWSTR, wt.LPWSTR, ctypes.c_void_p,
+                                            ctypes.c_void_p, wt.BOOL, wt.DWORD, ctypes.c_void_p,
+                                            wt.LPCWSTR, ctypes.POINTER(STARTUPINFOW),
+                                            ctypes.POINTER(PROCESS_INFORMATION)]
+    startup = STARTUPINFOW()
+    startup.cb = ctypes.sizeof(STARTUPINFOW)
     startup.lpDesktop = 'WinSta0\\Default'
-    startup.dwFlags = win32con.STARTF_USESHOWWINDOW
-    startup.wShowWindow = 0
+    info = PROCESS_INFORMATION()
+    command = ctypes.create_unicode_buffer(f'"{exe}" --injector')
     try:
-        child, _, _, _ = win32process.CreateProcessAsUser(
-            primary, None, f'"{exe}" --injector', None, None, False,
-            CREATE_NO_WINDOW, None, None, startup)
-        log(f'injector spawned in session {session}')
-        return child
+        if advapi.CreateProcessAsUserW(int(primary), None, command, None, None, False,
+                                       CREATE_NO_WINDOW, None, None,
+                                       ctypes.byref(startup), ctypes.byref(info)):
+            log(f'injector spawned in session {session}')
+            return int(info.hProcess)
+        log(f'spawn failed: {ctypes.WinError(ctypes.get_last_error())}')
     except Exception as exc:
         log(f'spawn failed: {exc}')
-        return None
+    return None
 
 
 # --------------------------------------------------------------------------
