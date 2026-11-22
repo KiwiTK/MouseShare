@@ -1,3 +1,12 @@
+MouseShare v0.8.33 · 第十七/十八层：两个「修复从未生效」的实锤修复（Windows） / two fixes that never actually took effect, now truly fixed
+
+- 第十七层（0.8.32 自引入，修复从未执行过）：`WTSQueryUserToken` 返回 pywin32 的 PyHANDLE 句柄对象，第十六层代码用 raw ctypes 的 `CloseHandle` 关闭它——ctypes 无法转换 PyHANDLE，在 finally 块抛 TypeError，把已成功复制的用户令牌一并丢弃，静默回退 SYSTEM 令牌。表现为日志 `app: user token unavailable (TypeError: Don't know how to convert parameter 1)`，登录后 GUI 仍是 SYSTEM 身份、被残留清理误杀、spawn/kill 循环复活——0.8.32 症状与 0.8.31 完全一致的原因。改用 PyHANDLE 自带 `.Close()`，pywin32 句柄对象绝不传给 raw ctypes。
+- 第十八层（0.8.31 起的路径修复实为无效操作）：实测 pathlib 语义，裸盘符的 `.anchor` 仍是 `C:` 而非 `C:\`——`Path('C:').anchor` 不含根分隔符，0.8.31 的「修复」是 no-op，预登录配置校验自 0.8.31 起一直用 `C:Users\...` 坏路径恒败（日志原文 `config incomplete in C:Users` 为证），预登录 GUI 从未拉起过。改为显式尾部分隔符构造 `C:\`，并补行为测试直接调用校验函数断言路径以 `C:\` 开头（此前 guard 测试只断言源码含 `.anchor` 子串，毫无约束力）。
+- 验收标志（两个「首次」）：①重启停在登录界面等 ~30 秒，主 win 可直接跨屏输密码（预登录 GUI 首次真正工作）；②日志不再出现 `user token unavailable` 与 `C:Users` 字样。
+- 兼容性说明：不同应用版本之间互通（协议版本常量），无需三台同步升级；建议两台 Windows 都升到本版。
+
+---
+
 MouseShare v0.8.32 · 第十六层：登录后 GUI 改用用户令牌拉起，修复 0.8.31 自引入的清理误杀（Windows） / post-logon GUI spawned with the real user token
 
 - 修复 0.8.31 自引入的回归（我担责）：服务拉起登录后 GUI 用的是 winlogon（即 SYSTEM）令牌，GUI 以 SYSTEM 身份运行——而 0.8.31 新增的 SYSTEM 残留清理会把它当成预登录孤儿误杀，spawn/kill 死循环，表现为桌面 GUI 反复闪断、布局里看不到对方、跨屏失效（偶尔热键能切是清理间隙的窗口期）。
