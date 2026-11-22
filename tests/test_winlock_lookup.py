@@ -83,3 +83,59 @@ def test_session_has_app_matches_by_image_name():
     assert winlock.session_has_app(entries, 1)
     assert not winlock.session_has_app(entries, 2)
     assert not winlock.session_has_app([(1, 100, 'explorer.exe', sid)], 1)
+
+
+def _fake_pywin32(monkeypatch):
+    """Install pywin32-shaped stub modules with the real module layout:
+    OpenProcess lives in win32api; win32process has no such attribute."""
+    import pathlib
+    import types
+
+    api = types.ModuleType('win32api')
+    proc = types.ModuleType('win32process')
+    con = types.ModuleType('win32con')
+    con.PROCESS_QUERY_INFORMATION = 0x400
+    con.PROCESS_VM_READ = 0x10
+
+    opened = []
+    closed = []
+
+    def open_process(access, inherit, pid):
+        opened.append((access, pid))
+        return (f'handle-{pid}',)
+
+    def get_module_file_name_ex(handle, module):
+        pid = handle[0].split('-')[1]
+        if pid == '300':
+            return 'C:\\Program Files\\MouseShare\\MouseShare.exe'
+        return 'C:\\Windows\\System32\\notepad.exe'
+
+    api.OpenProcess = open_process
+    api.CloseHandle = closed.append
+    proc.GetModuleFileNameEx = get_module_file_name_ex
+    monkeypatch.setitem(sys.modules, 'win32api', api)
+    monkeypatch.setitem(sys.modules, 'win32process', proc)
+    monkeypatch.setitem(sys.modules, 'win32con', con)
+    return opened, closed, pathlib
+
+
+def test_client_is_mouseshare_matches_image_name(monkeypatch):
+    winlock = load_winlock()
+    opened, closed, _ = _fake_pywin32(monkeypatch)
+    assert winlock.client_is_mouseshare(300)
+    assert opened == [(0x400 | 0x10, 300)]
+    assert len(closed) == 1
+
+
+def test_client_is_mouseshare_rejects_other_images(monkeypatch):
+    winlock = load_winlock()
+    _fake_pywin32(monkeypatch)
+    assert not winlock.client_is_mouseshare(500)  # app500.exe
+
+
+def test_no_win32process_openprocess_in_source():
+    """Guard: OpenProcess must be called on win32api (pywin32 layout)."""
+    winlock = load_winlock()
+    import pathlib
+    src = pathlib.Path(winlock.__file__).read_text(encoding='utf-8')
+    assert 'win32process.OpenProcess' not in src

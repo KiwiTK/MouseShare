@@ -256,7 +256,6 @@ def spawn_app(entries, session):
     """
     import win32api
     import win32con
-    import win32process
     import win32security
 
     exe = app_image_path()
@@ -265,7 +264,7 @@ def spawn_app(entries, session):
     host_pid = find_winlogon_pid(entries, session)
     if host_pid is None:
         return
-    process = win32process.OpenProcess(win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, host_pid)
+    process = win32api.OpenProcess(win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, host_pid)
     try:
         token = win32security.OpenProcessToken(
             process, win32con.TOKEN_DUPLICATE | win32con.TOKEN_QUERY | win32con.TOKEN_ASSIGN_PRIMARY)
@@ -305,8 +304,11 @@ def spawn_app(entries, session):
 def client_is_mouseshare(pid):
     try:
         import win32api
+        import win32con
         import win32process
-        handle = win32process.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        # OpenProcess lives in win32api, not win32process.
+        handle = win32api.OpenProcess(
+            win32con.PROCESS_QUERY_INFORMATION | win32con.PROCESS_VM_READ, False, pid)
         try:
             image = win32process.GetModuleFileNameEx(handle, 0).casefold()
         finally:
@@ -445,7 +447,7 @@ def spawn_injector(exe):
     if host_pid is None:
         log('no winlogon.exe in the console session yet')
         return None
-    process = win32process.OpenProcess(win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, host_pid)
+    process = win32api.OpenProcess(win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, host_pid)
     try:
         token = win32security.OpenProcessToken(
             process, win32con.TOKEN_DUPLICATE | win32con.TOKEN_QUERY | win32con.TOKEN_ASSIGN_PRIMARY)
