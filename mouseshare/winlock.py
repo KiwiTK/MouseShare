@@ -507,7 +507,7 @@ def supervisor(halt):
     last_sid = None
     last_app_check = 0.0
     prelogon_skip_reason = None
-    while win32event.WaitForSingleObject(halt, 10000) != 0:  # wake every 10 s
+    while win32event.WaitForSingleObject(halt, 2000) != 0:  # wake every 2 s
         handle = 0
         try:
             sid = console_user_sid()

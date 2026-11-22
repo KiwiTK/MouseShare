@@ -1,7 +1,9 @@
-MouseShare v0.8.29 · 第十二层修复：服务拉起 GUI 缺 CREATE_UNICODE_ENVIRONMENT（Windows） / missing CREATE_UNICODE_ENVIRONMENT in GUI spawn
+MouseShare v0.8.30 · 第十三层：预登录 GUI 静默跳过可见化 + 配置目录回退扫描（Windows） / pre-logon skip diagnostics & config-dir fallback
 
-- 修复服务拉起 GUI 恒报 `[WinError 87] 参数错误` 的问题（0.8.22 引入服务拉起以来从未成功过一次，GUI 一直靠开机自启动项兜底）：CreateEnvironmentBlock 返回的是 Unicode 环境块，CreateProcessAsUserW 必须带 CREATE_UNICODE_ENVIRONMENT 标志，否则系统按 ANSI 解析该块直接返回 ERROR_INVALID_PARAMETER。补上标志后，登录瞬间拉起与登录前预拉起才真正生效——重启后停在登录界面即可跨屏输密码。
-- 新增 guard 测试：服务拉起源码必须包含 CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW，旧调用模式禁止出现。
+- 修复重启后登录界面跨屏不生效且日志毫无线索的问题：服务预拉 GUI 前会校验 last_user.txt 所记用户的配置目录（settings.json + identity.key），校验失败时完全静默跳过——服务每 2 秒醒来都放弃，日志里一行痕迹都没有，外部看起来就像功能不存在。现在每次跳过原因都会写入 service.log（同一原因只记一次）。
+- 新增配置目录回退扫描：last_user.txt 指向的目录校验失败时（账号改名、profile 目录与用户名不一致、GUI 曾以其他账户运行等），自动扫描 C:\Users\*\AppData\Local\MouseShare，取最近使用的完整配置——即使记录的用户名对不上真实 profile 目录，预登录 GUI 也能带着正确的身份与配对启动。
+- 服务 supervisor 轮询间隔从 10 秒缩短到 2 秒：重启后预登录 GUI 的拉起与登录瞬间的交棒响应更快（配合 GUI 冷启动与自动发现，开机到可跨屏的预期总耗时约 15–30 秒，请在登录界面至少等待 30 秒再测）。
+- v0.8.29（第十二层修复）：服务拉起 GUI 恒报 [WinError 87]——CreateEnvironmentBlock 返回 Unicode 环境块，CreateProcessAsUserW 必须带 CREATE_UNICODE_ENVIRONMENT 标志；补上后服务拉起首次真正生效（日志出现 app launched）。
 - v0.8.28（第十一层，登录前跨屏）：服务记录最近登录用户名（last_user.txt），无人登录时以 SYSTEM 身份把完整 GUI 拉到控制台会话并经 --config-dir 指向真实用户配置目录（身份、配对、锁屏设置全部复用），登录瞬间交棒（先杀后拉）；支持 MOUSESHARE_CONFIG_DIR 与 --config-dir 覆盖；预登录目录校验 settings.json + identity.key 且拒绝路径穿越。
 - v0.8.27：修复注入助手一连上就崩溃退出的死循环（injector spawned → app connected → 数秒后 injector exited；反复重拉）：pywin32 的 win32pipe 模块只有管道管理函数（Create/Connect/Disconnect），ReadFile/WriteFile/CloseHandle 在 win32file——此前第一次读管道即抛 AttributeError，输入记录从未被读走，锁屏注入始终收不到事件。
 - 同步修正 win32file.ReadFile 的 (hr, data) 元组返回（hr 仅接受 0 与 ERROR_MORE_DATA），并替换全部 3 处管道句柄关闭调用。
