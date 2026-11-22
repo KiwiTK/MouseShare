@@ -144,5 +144,6 @@ def test_no_misattributed_pywin32_api_in_source():
     for pattern in ('win32process.OpenProcess',
                     'win32security.MAXIMUM_ALLOWED',
                     'win32security.SecurityPrimaryToken',
+                    'win32security.DuplicateTokenEx',
                     'DuplicateTokenEx(token, MAXIMUM_ALLOWED, None'):
         assert pattern not in src, pattern

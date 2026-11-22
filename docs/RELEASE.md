@@ -1,4 +1,4 @@
-MouseShare v0.8.23 · 锁屏服务第六层修复：令牌复制 + 注入助手拉起（Windows） / Token duplication & injector spawn fix
+MouseShare v0.8.24 · 锁屏服务第七层修复：令牌复制改用 ctypes 直调（Windows） / ctypes-based token duplication fix
 
 - 主窗口左下角新增联系方式：「有 bug 请联系微信：kiwi37」。
 - 新增锁屏控制服务（Windows，安装时勾选「锁屏时仍可控制」）：以 LocalSystem 服务常驻后台，通过复制 winlogon 令牌在控制台会话里拉起注入助手，锁屏/登录前都能接收鼠标键盘——跨屏输密码解锁成为可能。服务开机自动启动。
@@ -6,9 +6,10 @@ MouseShare v0.8.23 · 锁屏服务第六层修复：令牌复制 + 注入助手�
 - 锁屏下的注入失败改为瞬时阻断（半秒内自动恢复），不再把共享暂停 5 秒并广播不可用。
 - 安装器升级时自动停掉旧主程序与旧服务，不再弹出「DeleteFile failed; code 5 → Try again」；服务安装全程写日志到 `C:\ProgramData\MouseShare\service.log`，静默失败可诊断。
 - 修复三层只有 Windows 才能暴露的服务端崩溃：WTSEnumerateProcesses 读错列（把用户 SID 当进程名）、OpenProcess 用错模块（在 win32api 不在 win32process）、DuplicateTokenEx 常量归属错误（MAXIMUM_ALLOWED 不在 win32security）。此前锁屏服务每 10 秒崩溃一次、注入助手从未成功启动。新增 pywin32 用法静态 guard 测试防再犯。
-- v0.8.23：修复 DuplicateTokenEx 第三参数不接受 None 的问题（改传 0），并在会话内注入助手的拉起（CreateProcessAsUserW）改用 ctypes 全类型声明模式，与已验证可用的主程序拉起路径一致。此前服务在复制令牌一步每 10 秒报错一次，锁屏注入始终无法建立。
+- v0.8.23：注入助手的拉起（CreateProcessAsUserW）改用 ctypes 全类型声明模式，与已验证可用的主程序拉起路径一致。
+- v0.8.24：pywin32 的 DuplicateTokenEx 包装层跨版本对「安全属性」参数的校验不一致（有的 build 拒绝 None 要 int，有的 build 拒绝 int 要 PySECURITY_ATTRIBUTES），彻底绕开 pywin32——改用 ctypes 按 MSDN 原生签名直调 advapi32 的 DuplicateTokenEx（主程序拉起与注入助手拉起共用同一 helper），并补上令牌句柄回收。
 
-Lock-screen control arrives on Windows: an optional LocalSystem service spawns an in-session injector via the winlogon token, so the locked (or pre-logon) desktop can be driven from the other computer — including typing your password. The service auto-starts on boot and launches the GUI the moment you sign in. Installer no longer pops "Try again" on upgrades (it closes old processes itself) and logs every service-install step. Also fixed a chain of Windows-only crashes in the service (wrong WTS column, wrong OpenProcess module, misattributed security constants, DuplicateTokenEx rejecting a None attribute argument — the injector spawn path now uses the same ctypes-based CreateProcessAsUserW pattern as the proven GUI launcher), and added a footer line with the contact WeChat: kiwi37.
+Lock-screen control arrives on Windows: an optional LocalSystem service spawns an in-session injector via the winlogon token, so the locked (or pre-logon) desktop can be driven from the other computer — including typing your password. The service auto-starts on boot and launches the GUI the moment you sign in. Installer no longer pops "Try again" on upgrades (it closes old processes itself) and logs every service-install step. Also fixed a chain of Windows-only crashes in the service (wrong WTS column, wrong OpenProcess module, misattributed security constants, and the unreliable pywin32 DuplicateTokenEx wrapper — token duplication now calls advapi32 directly via ctypes with the exact MSDN signature, shared by both the GUI launcher and the injector spawn path), and added a footer line with the contact WeChat: kiwi37.
 
 ---
 

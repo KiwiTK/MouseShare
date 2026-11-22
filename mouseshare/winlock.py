@@ -52,6 +52,11 @@ U32.GetUserObjectInformationW.argtypes = [wt.HANDLE, ctypes.c_int, ctypes.c_void
 U32.CloseDesktop.argtypes = [wt.HANDLE]
 U32.SendInput.argtypes = [wt.UINT, ctypes.c_void_p, ctypes.c_int]
 
+ADV = ctypes.WinDLL('advapi32', use_last_error=True)
+ADV.DuplicateTokenEx.argtypes = [wt.HANDLE, wt.DWORD, ctypes.c_void_p, wt.DWORD, wt.DWORD,
+                                 ctypes.POINTER(wt.HANDLE)]
+ADV.DuplicateTokenEx.restype = wt.BOOL
+
 
 def log(message):
     try:
@@ -242,6 +247,24 @@ def session_has_app(entries, session):
     return False
 
 
+def duplicate_primary_token(token):
+    """Duplicate a token into a primary token via the raw advapi32 call.
+
+    pywin32's DuplicateTokenEx wrapper kept failing in different ways per
+    build (one rejected None for the attributes slot, the next treated a
+    plain int as a PySECURITY_ATTRIBUTES object), so the service calls the
+    API directly with explicit types and the documented order:
+    (token, desiredAccess, attrs, impersonationLevel, tokenType, out).
+    """
+    primary = wt.HANDLE()
+    if not ADV.DuplicateTokenEx(wt.HANDLE(int(token)), MAXIMUM_ALLOWED, None,
+                                2,   # SecurityImpersonation
+                                1,   # PrimaryToken
+                                ctypes.byref(primary)):
+        raise ctypes.WinError(ctypes.get_last_error())
+    return primary
+
+
 def spawn_app(entries, session):
     """Start the GUI in the console session the moment someone signs in.
 
@@ -268,9 +291,7 @@ def spawn_app(entries, session):
     try:
         token = win32security.OpenProcessToken(
             process, win32con.TOKEN_DUPLICATE | win32con.TOKEN_QUERY | win32con.TOKEN_ASSIGN_PRIMARY)
-        primary = win32security.DuplicateTokenEx(token, MAXIMUM_ALLOWED, 0,
-                                                 2,   # SecurityImpersonation
-                                                 1)   # PrimaryToken
+        primary = duplicate_primary_token(token)
     finally:
         win32api.CloseHandle(process)
     advapi = ctypes.WinDLL('advapi32', use_last_error=True)
@@ -297,6 +318,7 @@ def spawn_app(entries, session):
         else:
             log(f'app launch failed: {ctypes.WinError(ctypes.get_last_error())}')
     finally:
+        K32.CloseHandle(primary)
         if env:
             advapi.DestroyEnvironmentBlock(env)
 
@@ -450,9 +472,7 @@ def spawn_injector(exe):
     try:
         token = win32security.OpenProcessToken(
             process, win32con.TOKEN_DUPLICATE | win32con.TOKEN_QUERY | win32con.TOKEN_ASSIGN_PRIMARY)
-        primary = win32security.DuplicateTokenEx(token, MAXIMUM_ALLOWED, 0,
-                                                 2,   # SecurityImpersonation
-                                                 1)   # PrimaryToken
+        primary = duplicate_primary_token(token)
     finally:
         win32api.CloseHandle(process)
     advapi = ctypes.WinDLL('advapi32', use_last_error=True)
@@ -474,6 +494,8 @@ def spawn_injector(exe):
         log(f'spawn failed: {ctypes.WinError(ctypes.get_last_error())}')
     except Exception as exc:
         log(f'spawn failed: {exc}')
+    finally:
+        K32.CloseHandle(primary)
     return None
 
 
