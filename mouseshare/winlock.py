@@ -304,6 +304,38 @@ def prelogon_config_dir(profile_root=None):
     return directory
 
 
+def local_system_sid():
+    """String form of the LOCAL SYSTEM account SID, or None off-Windows."""
+    try:
+        import win32security
+        return win32security.ConvertSidToStringSid(
+            win32security.LookupAccountName(None, 'SYSTEM')[0])
+    except Exception:
+        return None
+
+
+def system_app_pids(entries, session, system_sid):
+    """pids of MouseShare.exe copies running as SYSTEM in the console session.
+
+    The pre-logon GUI runs as SYSTEM; normally the sign-in handover kills it
+    via the tracked handle. A service restart in between loses that handle,
+    leaving an orphan that then coexists with the signed-in user's GUI —
+    both share one identity, one of them loses the input-port bind and shows
+    as "未连接" forever.
+    """
+    pids = []
+    for entry in entries:
+        if entry[0] != session or str(entry[2]).casefold() != 'mouseshare.exe':
+            continue
+        try:
+            import win32security
+            if win32security.ConvertSidToStringSid(entry[3]) == system_sid:
+                pids.append(entry[1])
+        except Exception:
+            continue
+    return pids
+
+
 # --------------------------------------------------------------------------
 # Launching the app at sign-in (matches how "无界鼠标" is instantly usable)
 # --------------------------------------------------------------------------
@@ -498,6 +530,7 @@ def exe_hint():
 def supervisor(halt):
     """Keep one injector alive in the active console session until the service stops."""
     import win32api
+    import win32con
     import win32event
     import win32process
     import win32ts
@@ -507,6 +540,7 @@ def supervisor(halt):
     last_sid = None
     last_app_check = 0.0
     prelogon_skip_reason = None
+    system_sid = local_system_sid()
     while win32event.WaitForSingleObject(halt, 2000) != 0:  # wake every 2 s
         handle = 0
         try:
@@ -575,6 +609,19 @@ def supervisor(halt):
                                 K32.CloseHandle(handle)  # user-context GUI needs no tracking
                             else:
                                 app_child = handle
+                    elif sid and system_sid:
+                        # Signed in with an app present: kill any SYSTEM-owned
+                        # copy — a signed-in desktop must never share the
+                        # session with the pre-logon GUI (handle tracking can
+                        # miss it after a service restart).
+                        for pid in system_app_pids(entries, session, system_sid):
+                            log(f'terminating stray pre-logon GUI (pid {pid})')
+                            try:
+                                proc = win32api.OpenProcess(win32con.PROCESS_TERMINATE, False, pid)
+                                win32api.TerminateProcess(proc, 0)
+                                win32api.CloseHandle(proc)
+                            except Exception as exc:
+                                log(f'stray kill failed: {exc}')
         except Exception as exc:
             log(f'supervisor error: {exc}')
     if child is not None:

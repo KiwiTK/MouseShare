@@ -976,9 +976,17 @@ def main():
         return diagnostics_request(True) if args.diagnostics else request(args.paste_to)
 
     if owner(lock):
-        # Another copy is running, so wait while it finishes bringing up its socket.
-        if forward(name, outgoing(), START_TIMEOUT):
-            return 0
+        # Another copy owns the lock but may still be cold-starting: Qt load
+        # plus an antivirus first-run scan routinely exceeds 10 s, so a single
+        # timed forward used to give up, DELETE the lock and race the winner —
+        # two full instances, one of them stuck "未连接" on the occupied port.
+        # Keep waiting while the recorded owner is alive; take over only when
+        # it is confirmed gone.
+        while True:
+            if forward(name, outgoing(), START_TIMEOUT):
+                return 0
+            if owner(lock) is None:
+                break
         discard(lock)
     elif forward(name, outgoing(), PROBE_TIMEOUT):
         return 0

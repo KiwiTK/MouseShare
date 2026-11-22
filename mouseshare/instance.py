@@ -32,16 +32,21 @@ def alive(pid):
     """
     if sys.platform == "win32":
         import ctypes
-        handle = ctypes.windll.kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        k32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        handle = k32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
         if not handle:
-            return False
+            # ACCESS_DENIED means the recorded owner runs more privileged than
+            # us (started elevated once, or the pre-logon SYSTEM copy): treat
+            # it as alive — declaring it dead and claiming the lock over it is
+            # how double instances are born.
+            return ctypes.get_last_error() == 5  # ERROR_ACCESS_DENIED
         try:
             code = ctypes.c_ulong()
-            if not ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            if not k32.GetExitCodeProcess(handle, ctypes.byref(code)):
                 return False
             return code.value == _STILL_ACTIVE
         finally:
-            ctypes.windll.kernel32.CloseHandle(handle)
+            k32.CloseHandle(handle)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

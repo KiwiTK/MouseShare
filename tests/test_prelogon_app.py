@@ -117,3 +117,33 @@ def test_prelogon_state_reason_without_record(tmp_path, monkeypatch):
     found, reason = winlock.prelogon_config_state(profile_root=tmp_path)
     assert found is None
     assert "last_user.txt" in reason
+
+
+def _pkg_source(filename):
+    import mouseshare
+    return (Path(mouseshare.__file__).parent / filename).read_text(encoding="utf-8")
+
+
+def test_lock_wait_loops_while_owner_alive():
+    """Loser of the startup race must wait, never delete a live lock and race it.
+
+    Regression: a cold start (Qt + antivirus first-run scan) can exceed the
+    10 s forward timeout; discarding the lock then started a second full
+    instance, one of them stuck 未连接 on the occupied input port.
+    """
+    src = _pkg_source("app.py")
+    assert "if forward(name, outgoing(), START_TIMEOUT):\n            return 0\n        discard(lock)" not in src
+    assert "Keep waiting while the recorded owner is alive" in src
+
+
+def test_alive_treats_access_denied_as_alive():
+    """A privileged recorded owner must not read as dead (that steals the lock)."""
+    src = _pkg_source("instance.py")
+    assert "ERROR_ACCESS_DENIED" in src
+
+
+def test_supervisor_kills_stray_system_gui():
+    """A service restart orphans the pre-logon GUI handle; strays must die."""
+    src = _pkg_source("winlock.py")
+    assert "terminating stray pre-logon GUI" in src
+    assert "system_app_pids" in src
