@@ -133,9 +133,15 @@ def test_client_is_mouseshare_rejects_other_images(monkeypatch):
     assert not winlock.client_is_mouseshare(500)  # app500.exe
 
 
-def test_no_win32process_openprocess_in_source():
-    """Guard: OpenProcess must be called on win32api (pywin32 layout)."""
+def test_no_misattributed_pywin32_api_in_source():
+    """Guard: pywin32 constants used in winlock must live in the right module.
+
+    OpenProcess lives in win32api; MAXIMUM_ALLOWED / SecurityPrimaryToken are
+    not exported by win32security (real bugs hit on Windows only)."""
     winlock = load_winlock()
     import pathlib
     src = pathlib.Path(winlock.__file__).read_text(encoding='utf-8')
-    assert 'win32process.OpenProcess' not in src
+    for pattern in ('win32process.OpenProcess',
+                    'win32security.MAXIMUM_ALLOWED',
+                    'win32security.SecurityPrimaryToken'):
+        assert pattern not in src, pattern

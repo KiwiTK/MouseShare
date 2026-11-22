@@ -1,3 +1,16 @@
+MouseShare v0.8.22 · 锁屏跨屏服务化（Windows）+ 主窗口联系方式 / Lock-screen control service + contact footer
+
+- 主窗口左下角新增联系方式：「有 bug 请联系微信：kiwi37」。
+- 新增锁屏控制服务（Windows，安装时勾选「锁屏时仍可控制」）：以 LocalSystem 服务常驻后台，通过复制 winlogon 令牌在控制台会话里拉起注入助手，锁屏/登录前都能接收鼠标键盘——跨屏输密码解锁成为可能。服务开机自动启动。
+- 服务在用户登录瞬间直接拉起主程序，不再等开机启动项排队，解锁后即可跨屏。
+- 锁屏下的注入失败改为瞬时阻断（半秒内自动恢复），不再把共享暂停 5 秒并广播不可用。
+- 安装器升级时自动停掉旧主程序与旧服务，不再弹出「DeleteFile failed; code 5 → Try again」；服务安装全程写日志到 `C:\ProgramData\MouseShare\service.log`，静默失败可诊断。
+- 修复三层只有 Windows 才能暴露的服务端崩溃：WTSEnumerateProcesses 读错列（把用户 SID 当进程名）、OpenProcess 用错模块（在 win32api 不在 win32process）、DuplicateTokenEx 常量归属错误（MAXIMUM_ALLOWED 不在 win32security）。此前锁屏服务每 10 秒崩溃一次、注入助手从未成功启动。新增 pywin32 用法静态 guard 测试防再犯。
+
+Lock-screen control arrives on Windows: an optional LocalSystem service spawns an in-session injector via the winlogon token, so the locked (or pre-logon) desktop can be driven from the other computer — including typing your password. The service auto-starts on boot and launches the GUI the moment you sign in. Installer no longer pops "Try again" on upgrades (it closes old processes itself) and logs every service-install step. Also fixed three Windows-only crashes in the service (wrong WTS column, wrong OpenProcess module, misattributed security constants) that prevented the injector from ever starting, and added a footer line with the contact WeChat: kiwi37.
+
+---
+
 MouseShare v0.7.10 · 自由摆放与一键同步系统排列 / Free placement, apply to Windows
 
 - 屏幕布局不再回弹：拖动到哪里就停在哪里。此前只要两块屏有任何重叠（包括把自己电脑的第二屏拖过第一屏），保存前的校验会整体回滚，看起来就像被弹回去；现在重叠只作提示「有 N 处屏幕重叠，重叠的边缘不会跨屏」，位置一律保留。

@@ -268,9 +268,9 @@ def spawn_app(entries, session):
     try:
         token = win32security.OpenProcessToken(
             process, win32con.TOKEN_DUPLICATE | win32con.TOKEN_QUERY | win32con.TOKEN_ASSIGN_PRIMARY)
-        primary = win32security.DuplicateTokenEx(token, win32security.MAXIMUM_ALLOWED, None,
-                                                 win32security.SecurityImpersonation,
-                                                 win32security.SecurityPrimaryToken)
+        primary = win32security.DuplicateTokenEx(token, MAXIMUM_ALLOWED, None,
+                                                 2,   # SecurityImpersonation
+                                                 1)   # PrimaryToken
     finally:
         win32api.CloseHandle(process)
     advapi = ctypes.WinDLL('advapi32', use_last_error=True)
@@ -451,9 +451,9 @@ def spawn_injector(exe):
     try:
         token = win32security.OpenProcessToken(
             process, win32con.TOKEN_DUPLICATE | win32con.TOKEN_QUERY | win32con.TOKEN_ASSIGN_PRIMARY)
-        primary = win32security.DuplicateTokenEx(token, win32security.MAXIMUM_ALLOWED, None,
-                                                 win32security.SecurityImpersonation,
-                                                 win32security.SecurityPrimaryToken)
+        primary = win32security.DuplicateTokenEx(token, MAXIMUM_ALLOWED, None,
+                                                 2,   # SecurityImpersonation
+                                                 1)   # PrimaryToken
     finally:
         win32api.CloseHandle(process)
     startup = win32process.STARTUPINFO()
