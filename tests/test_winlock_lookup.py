@@ -145,5 +145,12 @@ def test_no_misattributed_pywin32_api_in_source():
                     'win32security.MAXIMUM_ALLOWED',
                     'win32security.SecurityPrimaryToken',
                     'win32security.DuplicateTokenEx',
-                    'DuplicateTokenEx(token, MAXIMUM_ALLOWED, None'):
+                    'DuplicateTokenEx(token, MAXIMUM_ALLOWED, None',
+                    # Python 3.13 removed int() on ctypes c_void_p (raw bytes
+                    # ValueError); handles must go through .value.
+                    'int(primary',
+                    'int(info.',
+                    # CreateEnvironmentBlock lives in userenv.dll, not advapi32.
+                    'advapi.CreateEnvironmentBlock',
+                    'advapi.DestroyEnvironmentBlock'):
         assert pattern not in src, pattern

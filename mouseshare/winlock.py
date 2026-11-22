@@ -56,6 +56,10 @@ ADV = ctypes.WinDLL('advapi32', use_last_error=True)
 ADV.DuplicateTokenEx.argtypes = [wt.HANDLE, wt.DWORD, ctypes.c_void_p, wt.DWORD, wt.DWORD,
                                  ctypes.POINTER(wt.HANDLE)]
 ADV.DuplicateTokenEx.restype = wt.BOOL
+# CreateEnvironmentBlock / DestroyEnvironmentBlock live in userenv.dll, not advapi32.
+USERENV = ctypes.WinDLL('userenv', use_last_error=True)
+USERENV.CreateEnvironmentBlock.argtypes = [ctypes.POINTER(ctypes.c_void_p), wt.HANDLE, wt.BOOL]
+USERENV.DestroyEnvironmentBlock.argtypes = [ctypes.c_void_p]
 
 
 def log(message):
@@ -235,6 +239,12 @@ class PROCESS_INFORMATION(ctypes.Structure):
                 ('dwProcessId', wt.DWORD), ('dwThreadId', wt.DWORD)]
 
 
+ADV.CreateProcessAsUserW.argtypes = [wt.HANDLE, wt.LPCWSTR, wt.LPWSTR, ctypes.c_void_p,
+                                     ctypes.c_void_p, wt.BOOL, wt.DWORD, ctypes.c_void_p,
+                                     wt.LPCWSTR, ctypes.POINTER(STARTUPINFOW),
+                                     ctypes.POINTER(PROCESS_INFORMATION)]
+
+
 def app_image_path():
     return os.path.join(os.path.dirname(sys.executable), 'MouseShare.exe')
 
@@ -294,15 +304,10 @@ def spawn_app(entries, session):
         primary = duplicate_primary_token(token)
     finally:
         win32api.CloseHandle(process)
-    advapi = ctypes.WinDLL('advapi32', use_last_error=True)
-    advapi.CreateEnvironmentBlock.argtypes = [ctypes.POINTER(ctypes.c_void_p), wt.HANDLE, wt.BOOL]
-    advapi.DestroyEnvironmentBlock.argtypes = [ctypes.c_void_p]
-    advapi.CreateProcessAsUserW.argtypes = [wt.HANDLE, wt.LPCWSTR, wt.LPWSTR, ctypes.c_void_p,
-                                            ctypes.c_void_p, wt.BOOL, wt.DWORD, ctypes.c_void_p,
-                                            wt.LPCWSTR, ctypes.POINTER(STARTUPINFOW),
-                                            ctypes.POINTER(PROCESS_INFORMATION)]
+    # Python 3.13 removed int() support on ctypes c_void_p (it chokes on the
+    # raw buffer bytes); the handle must go through .value explicitly.
     env = ctypes.c_void_p()
-    if not advapi.CreateEnvironmentBlock(ctypes.byref(env), int(primary), False):
+    if not USERENV.CreateEnvironmentBlock(ctypes.byref(env), primary.value or 0, False):
         log('app: environment block unavailable; launching with service env')
         env = None
     startup = STARTUPINFOW()
@@ -311,16 +316,16 @@ def spawn_app(entries, session):
     info = PROCESS_INFORMATION()
     command = ctypes.create_unicode_buffer(f'"{exe}"')
     try:
-        if advapi.CreateProcessAsUserW(int(primary), exe, command, None, None, False,
-                                       CREATE_NO_WINDOW, env, None,
-                                       ctypes.byref(startup), ctypes.byref(info)):
+        if ADV.CreateProcessAsUserW(primary.value or 0, exe, command, None, None, False,
+                                    CREATE_NO_WINDOW, env, None,
+                                    ctypes.byref(startup), ctypes.byref(info)):
             log(f'app launched in session {session} (pid {info.dwProcessId})')
         else:
             log(f'app launch failed: {ctypes.WinError(ctypes.get_last_error())}')
     finally:
         K32.CloseHandle(primary)
         if env:
-            advapi.DestroyEnvironmentBlock(env)
+            USERENV.DestroyEnvironmentBlock(env)
 
 
 def client_is_mouseshare(pid):
@@ -475,22 +480,17 @@ def spawn_injector(exe):
         primary = duplicate_primary_token(token)
     finally:
         win32api.CloseHandle(process)
-    advapi = ctypes.WinDLL('advapi32', use_last_error=True)
-    advapi.CreateProcessAsUserW.argtypes = [wt.HANDLE, wt.LPCWSTR, wt.LPWSTR, ctypes.c_void_p,
-                                            ctypes.c_void_p, wt.BOOL, wt.DWORD, ctypes.c_void_p,
-                                            wt.LPCWSTR, ctypes.POINTER(STARTUPINFOW),
-                                            ctypes.POINTER(PROCESS_INFORMATION)]
     startup = STARTUPINFOW()
     startup.cb = ctypes.sizeof(STARTUPINFOW)
     startup.lpDesktop = 'WinSta0\\Default'
     info = PROCESS_INFORMATION()
     command = ctypes.create_unicode_buffer(f'"{exe}" --injector')
     try:
-        if advapi.CreateProcessAsUserW(int(primary), None, command, None, None, False,
-                                       CREATE_NO_WINDOW, None, None,
-                                       ctypes.byref(startup), ctypes.byref(info)):
+        if ADV.CreateProcessAsUserW(primary.value or 0, None, command, None, None, False,
+                                    CREATE_NO_WINDOW, None, None,
+                                    ctypes.byref(startup), ctypes.byref(info)):
             log(f'injector spawned in session {session}')
-            return int(info.hProcess)
+            return info.hProcess.value or 0
         log(f'spawn failed: {ctypes.WinError(ctypes.get_last_error())}')
     except Exception as exc:
         log(f'spawn failed: {exc}')

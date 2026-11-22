@@ -1,4 +1,4 @@
-MouseShare v0.8.24 · 锁屏服务第七层修复：令牌复制改用 ctypes 直调（Windows） / ctypes-based token duplication fix
+MouseShare v0.8.25 · 锁屏服务第八层修复：ctypes 句柄取值 + 环境块 DLL 归属（Windows） / ctypes handle & userenv.dll fixes
 
 - 主窗口左下角新增联系方式：「有 bug 请联系微信：kiwi37」。
 - 新增锁屏控制服务（Windows，安装时勾选「锁屏时仍可控制」）：以 LocalSystem 服务常驻后台，通过复制 winlogon 令牌在控制台会话里拉起注入助手，锁屏/登录前都能接收鼠标键盘——跨屏输密码解锁成为可能。服务开机自动启动。
@@ -7,9 +7,10 @@ MouseShare v0.8.24 · 锁屏服务第七层修复：令牌复制改用 ctypes �
 - 安装器升级时自动停掉旧主程序与旧服务，不再弹出「DeleteFile failed; code 5 → Try again」；服务安装全程写日志到 `C:\ProgramData\MouseShare\service.log`，静默失败可诊断。
 - 修复三层只有 Windows 才能暴露的服务端崩溃：WTSEnumerateProcesses 读错列（把用户 SID 当进程名）、OpenProcess 用错模块（在 win32api 不在 win32process）、DuplicateTokenEx 常量归属错误（MAXIMUM_ALLOWED 不在 win32security）。此前锁屏服务每 10 秒崩溃一次、注入助手从未成功启动。新增 pywin32 用法静态 guard 测试防再犯。
 - v0.8.23：注入助手的拉起（CreateProcessAsUserW）改用 ctypes 全类型声明模式，与已验证可用的主程序拉起路径一致。
-- v0.8.24：pywin32 的 DuplicateTokenEx 包装层跨版本对「安全属性」参数的校验不一致（有的 build 拒绝 None 要 int，有的 build 拒绝 int 要 PySECURITY_ATTRIBUTES），彻底绕开 pywin32——改用 ctypes 按 MSDN 原生签名直调 advapi32 的 DuplicateTokenEx（主程序拉起与注入助手拉起共用同一 helper），并补上令牌句柄回收。
+- v0.8.24：pywin32 的 DuplicateTokenEx 包装层跨版本对「安全属性」参数的校验不一致，彻底绕开 pywin32——改用 ctypes 按 MSDN 原生签名直调 advapi32 的 DuplicateTokenEx（主程序拉起与注入助手拉起共用同一 helper）。此版证明令牌复制已打通。
+- v0.8.25：两个拉起环节的修复——①Python 3.13 移除了 ctypes c_void_p 句柄的 int() 转换（报 invalid literal for int()），改用 .value 显式取值；②CreateEnvironmentBlock/DestroyEnvironmentBlock 在 userenv.dll 而非 advapi32（此前报 function not found），修正 DLL 归属。
 
-Lock-screen control arrives on Windows: an optional LocalSystem service spawns an in-session injector via the winlogon token, so the locked (or pre-logon) desktop can be driven from the other computer — including typing your password. The service auto-starts on boot and launches the GUI the moment you sign in. Installer no longer pops "Try again" on upgrades (it closes old processes itself) and logs every service-install step. Also fixed a chain of Windows-only crashes in the service (wrong WTS column, wrong OpenProcess module, misattributed security constants, and the unreliable pywin32 DuplicateTokenEx wrapper — token duplication now calls advapi32 directly via ctypes with the exact MSDN signature, shared by both the GUI launcher and the injector spawn path), and added a footer line with the contact WeChat: kiwi37.
+Lock-screen control arrives on Windows: an optional LocalSystem service spawns an in-session injector via the winlogon token, so the locked (or pre-logon) desktop can be driven from the other computer — including typing your password. The service auto-starts on boot and launches the GUI the moment you sign in. Installer no longer pops "Try again" on upgrades (it closes old processes itself) and logs every service-install step. Also fixed a chain of Windows-only crashes in the service (wrong WTS column, wrong OpenProcess module, misattributed security constants, the unreliable pywin32 DuplicateTokenEx wrapper (token duplication now calls advapi32 directly via ctypes), Python 3.13 removing int() support on ctypes handles (now read via .value), and CreateEnvironmentBlock being resolved from userenv.dll where it actually lives), and added a footer line with the contact WeChat: kiwi37.
 
 ---
 
