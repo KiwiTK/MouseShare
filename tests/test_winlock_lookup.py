@@ -160,3 +160,7 @@ def test_no_misattributed_pywin32_api_in_source():
                     'win32pipe.WriteFile',
                     'win32pipe.CloseHandle'):
         assert pattern not in src, pattern
+    # CreateEnvironmentBlock yields a Unicode block: CreateProcessAsUserW must
+    # pass CREATE_UNICODE_ENVIRONMENT or every launch dies with WinError 87.
+    assert 'CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW' in src
+    assert 'None, None, False,\n                                    CREATE_NO_WINDOW, env' not in src

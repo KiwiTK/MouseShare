@@ -40,6 +40,10 @@ GENERIC_ALL = 0x10000000
 UOI_NAME = 2
 MAXIMUM_ALLOWED = 0x02000000
 CREATE_NO_WINDOW = 0x08000000
+# CreateEnvironmentBlock yields a Unicode environment block; CreateProcessAsUserW
+# reinterprets it as ANSI unless this flag is set, which reads as invalid
+# parameter (WinError 87) on every single launch.
+CREATE_UNICODE_ENVIRONMENT = 0x400
 
 K32 = ctypes.WinDLL('kernel32', use_last_error=True)
 U32 = ctypes.WinDLL('user32', use_last_error=True)
@@ -366,7 +370,7 @@ def spawn_app(entries, session, config_dir=None):
     command = ctypes.create_unicode_buffer(command)
     try:
         if ADV.CreateProcessAsUserW(primary.value or 0, exe, command, None, None, False,
-                                    CREATE_NO_WINDOW, env, None,
+                                    CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW, env, None,
                                     ctypes.byref(startup), ctypes.byref(info)):
             log(f'app launched in session {session} (pid {info.dwProcessId})')
             if info.hThread:
