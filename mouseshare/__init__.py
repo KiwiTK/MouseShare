@@ -1,4 +1,4 @@
 """MouseShare: LAN keyboard and mouse sharing."""
 
-__version__ = "0.8.26"
+__version__ = "0.8.27"
 

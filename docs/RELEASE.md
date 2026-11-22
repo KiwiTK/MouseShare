@@ -1,4 +1,9 @@
-MouseShare v0.8.26 · 锁屏服务第九层修复：子进程句柄与管道竞态（Windows） / child handle & pipe race fixes
+MouseShare v0.8.27 · 锁屏服务第十层修复：管道读写 API 归属 win32file（Windows） / pipe I/O API belongs to win32file
+
+- 修复注入助手一连上就崩溃退出的死循环（injector spawned → app connected → 数秒后 injector exited；反复重拉）：pywin32 的 win32pipe 模块只有管道管理函数（Create/Connect/Disconnect），ReadFile/WriteFile/CloseHandle 在 win32file——此前第一次读管道即抛 AttributeError，输入记录从未被读走，锁屏注入始终收不到事件。
+- 同步修正 win32file.ReadFile 的 (hr, data) 元组返回（hr 仅接受 0 与 ERROR_MORE_DATA），并替换全部 3 处管道句柄关闭调用。
+- 新增静态 guard 测试禁止在管道场景误用 win32pipe.ReadFile/WriteFile/CloseHandle。
+- v0.8.26：修复服务拿不到注入助手子进程句柄（PROCESS_INFORMATION.hProcess 结构体字段取出即为 int，无需 .value）与 ERROR_PIPE_CONNECTED(535) 竞态丢连接，孤儿助手堆积刷屏消失。
 
 - 锁屏注入助手已能在锁定会话中成功启动并连回服务（v0.8.25 日志确认 injector spawned / injector starting / app connected），本版收尾两个残留 bug：
 - 修复服务拿不到注入助手子进程句柄的问题（'int' object has no attribute 'value'）：PROCESS_INFORMATION.hProcess 是结构体字段、取出即为 int，无需再取 .value；此前失败导致服务每 10 秒重复拉起、堆积大量孤儿注入助手（日志刷 rejected pipe client）。升级安装时旧孤儿助手会被自动清理。
