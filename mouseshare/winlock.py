@@ -245,27 +245,62 @@ def console_user_name():
         return None
 
 
-def prelogon_config_dir(profile_root=None):
-    """Config dir of the last console user, or None when unknown/absent.
+def prelogon_config_state(profile_root=None):
+    """(config dir of the last console user, human-readable skip reason).
 
     The pre-logon GUI runs as SYSTEM, so LOCALAPPDATA points at the SYSTEM
     profile and pairing would be lost. The supervisor records the console
     user name while they are signed in; after a reboot the service points
     the pre-logon GUI back at that user's real config dir. Verifying
     settings.json + identity.key keeps a wrong profile guess harmless.
+
+    Returns (None, reason) when the pre-logon spawn must skip — the reason
+    is what the service log shows, because a silent skip here reads exactly
+    like "the feature does not exist" from the outside.
     """
     import pathlib
+    if profile_root is None:
+        profile_root = pathlib.Path(os.environ.get('SystemDrive', 'C:')) / 'Users'
+    profile_root = pathlib.Path(profile_root)
     try:
         username = pathlib.Path(LOG_DIR, 'last_user.txt').read_text(encoding='utf-8').strip()
     except OSError:
-        return None
-    if not username or any(sep in username for sep in ('/', '\\', ':')):
-        return None
-    if profile_root is None:
-        profile_root = pathlib.Path(os.environ.get('SystemDrive', 'C:')) / 'Users'
-    directory = pathlib.Path(profile_root) / username / 'AppData' / 'Local' / 'MouseShare'
-    if not (directory / 'settings.json').exists() or not (directory / 'identity.key').exists():
-        return None
+        username = ''
+    checked = None
+    if username and username not in ('.', '..') and \
+            not any(sep in username for sep in ('/', '\\', ':')):
+        checked = profile_root / username / 'AppData' / 'Local' / 'MouseShare'
+        if (checked / 'settings.json').exists() and (checked / 'identity.key').exists():
+            return checked, ''
+    # The recorded name may be stale (account renamed, profile reshuffled,
+    # GUI run under a different account). Any local profile carrying a
+    # complete config is a better guess than giving up; prefer the most
+    # recently used one.
+    best = None
+    best_mtime = -1.0
+    try:
+        entries = list(profile_root.iterdir())
+    except OSError:
+        entries = []
+    for profile in entries:
+        directory = profile / 'AppData' / 'Local' / 'MouseShare'
+        try:
+            mtime = (directory / 'settings.json').stat().st_mtime
+        except OSError:
+            continue
+        if mtime > best_mtime and (directory / 'identity.key').exists():
+            best, best_mtime = directory, mtime
+    if best is not None:
+        return best, ''
+    if checked is not None:
+        return None, f'config incomplete in {checked}'
+    if username:
+        return None, f'unusable last user name {username!r}'
+    return None, 'last_user.txt missing or empty'
+
+
+def prelogon_config_dir(profile_root=None):
+    directory, _reason = prelogon_config_state(profile_root)
     return directory
 
 
@@ -471,6 +506,7 @@ def supervisor(halt):
     app_child = None  # pre-logon SYSTEM GUI; terminated once someone signs in
     last_sid = None
     last_app_check = 0.0
+    prelogon_skip_reason = None
     while win32event.WaitForSingleObject(halt, 10000) != 0:  # wake every 10 s
         handle = 0
         try:
@@ -492,6 +528,7 @@ def supervisor(halt):
                 win32api.TerminateProcess(app_child, 0)
                 win32api.CloseHandle(app_child)
                 app_child = None
+                prelogon_skip_reason = None
             last_sid = sid
             if sid:
                 username = console_user_name()
@@ -523,11 +560,16 @@ def supervisor(halt):
                         if sid:
                             handle = spawn_app(entries, session)
                         else:
-                            directory = prelogon_config_dir()
+                            directory, reason = prelogon_config_state()
                             if directory:
                                 handle = spawn_app(entries, session, config_dir=str(directory))
                                 if handle:
                                     log('pre-logon app running; crossing works before sign-in')
+                            elif reason != prelogon_skip_reason:
+                                # Log once per distinct reason: a silent skip
+                                # here reads exactly like "feature missing".
+                                prelogon_skip_reason = reason
+                                log(f'pre-logon GUI skipped: {reason}')
                         if handle:
                             if sid:
                                 K32.CloseHandle(handle)  # user-context GUI needs no tracking

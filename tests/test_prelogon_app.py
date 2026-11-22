@@ -72,7 +72,7 @@ def test_prelogon_config_dir_rejects_incomplete_config(tmp_path, monkeypatch):
 def test_prelogon_config_dir_rejects_path_tricks(tmp_path, monkeypatch):
     winlock = load_winlock()
     monkeypatch.setattr(winlock, "LOG_DIR", str(tmp_path))
-    for username in (r"..\other", "a/b", "C:", ""):
+    for username in (r"..\other", "a/b", "C:", "", ".."):
         (Path(tmp_path) / "last_user.txt").write_text(username, encoding="utf-8")
         assert winlock.prelogon_config_dir(profile_root=tmp_path) is None, username
 
@@ -81,3 +81,39 @@ def test_prelogon_config_dir_without_record(tmp_path, monkeypatch):
     winlock = load_winlock()
     monkeypatch.setattr(winlock, "LOG_DIR", str(tmp_path))
     assert winlock.prelogon_config_dir(profile_root=tmp_path) is None
+
+
+def test_prelogon_state_reports_skip_reason(tmp_path, monkeypatch):
+    """A silent skip reads like a missing feature; the reason must reach the log."""
+    winlock = load_winlock()
+    directory = tmp_path / "kiwi" / "AppData" / "Local" / "MouseShare"
+    directory.mkdir(parents=True)
+    (directory / "settings.json").write_text("{}", encoding="utf-8")  # no identity.key
+    monkeypatch.setattr(winlock, "LOG_DIR", str(tmp_path))
+    (Path(tmp_path) / "last_user.txt").write_text("kiwi", encoding="utf-8")
+    found, reason = winlock.prelogon_config_state(profile_root=tmp_path)
+    assert found is None
+    assert "config incomplete" in reason and "kiwi" in reason
+
+
+def test_prelogon_state_falls_back_to_valid_profile(tmp_path, monkeypatch):
+    """A stale/renamed last-user record must not kill the pre-logon GUI.
+
+    Regression: the field machine recorded 'adminstrator' while the real
+    profile carrying settings.json + identity.key lives under another name —
+    the service silently skipped and pre-logon crossing never started.
+    """
+    winlock = load_winlock()
+    real = _profile(tmp_path, username="Administrator")
+    monkeypatch.setattr(winlock, "LOG_DIR", str(tmp_path))
+    (Path(tmp_path) / "last_user.txt").write_text("ghost", encoding="utf-8")
+    assert winlock.prelogon_config_state(profile_root=tmp_path) == (real, "")
+    assert winlock.prelogon_config_dir(profile_root=tmp_path) == real
+
+
+def test_prelogon_state_reason_without_record(tmp_path, monkeypatch):
+    winlock = load_winlock()
+    monkeypatch.setattr(winlock, "LOG_DIR", str(tmp_path))
+    found, reason = winlock.prelogon_config_state(profile_root=tmp_path)
+    assert found is None
+    assert "last_user.txt" in reason
