@@ -177,6 +177,20 @@ def test_signin_spawn_uses_user_token_not_winlogon():
     assert spawn.index("WTSQueryUserToken") < spawn.index("find_winlogon_pid")
 
 
+def test_user_token_closed_via_pyhandle_not_raw_ctypes():
+    """The WTSQueryUserToken handle must not be closed by raw ctypes.
+
+    Regression (0.8.32 log): WTSQueryUserToken returns a PyHANDLE; the raw
+    ctypes CloseHandle cannot convert it and raised ArgumentError from the
+    finally block, discarding the successfully duplicated token — so every
+    post-sign-in spawn silently fell back to the SYSTEM token and was killed
+    by the stray cleanup 10 s later (spawn/kill loop, "peer gone" again).
+    """
+    spawn = _pkg_source("winlock.py").split("def spawn_app")[1].split("\ndef ")[0]
+    assert "user_token.Close()" in spawn
+    assert "K32.CloseHandle(user_token)" not in spawn
+
+
 def test_terminate_races_are_tolerated():
     """Terminating an already-dead injector must not raise into the loop.
 

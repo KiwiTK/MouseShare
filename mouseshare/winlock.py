@@ -433,7 +433,12 @@ def spawn_app(entries, session, config_dir=None):
             try:
                 primary = duplicate_primary_token(user_token)
             finally:
-                K32.CloseHandle(user_token)
+                # PyHANDLE must be closed via its own method: the raw ctypes
+                # CloseHandle cannot convert a PyHANDLE and raises
+                # ArgumentError from the finally block — which would discard
+                # the freshly duplicated token and silently fall back to the
+                # SYSTEM (winlogon) token, resurrecting the spawn/kill loop.
+                user_token.Close()
         except Exception as exc:
             log(f'app: user token unavailable ({exc}); falling back to winlogon token')
     if primary is None:
