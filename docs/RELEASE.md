@@ -1,8 +1,11 @@
-MouseShare v0.8.30 · 第十三层：预登录 GUI 静默跳过可见化 + 配置目录回退扫描（Windows） / pre-logon skip diagnostics & config-dir fallback
+MouseShare v0.8.31 · 第十五层：预登录配置路径盘符相对化修复 + 双实例修复（Windows） / drive-relative config path & dual-instance fixes
 
-- 修复重启后登录界面跨屏不生效且日志毫无线索的问题：服务预拉 GUI 前会校验 last_user.txt 所记用户的配置目录（settings.json + identity.key），校验失败时完全静默跳过——服务每 2 秒醒来都放弃，日志里一行痕迹都没有，外部看起来就像功能不存在。现在每次跳过原因都会写入 service.log（同一原因只记一次）。
-- 新增配置目录回退扫描：last_user.txt 指向的目录校验失败时（账号改名、profile 目录与用户名不一致、GUI 曾以其他账户运行等），自动扫描 C:\Users\*\AppData\Local\MouseShare，取最近使用的完整配置——即使记录的用户名对不上真实 profile 目录，预登录 GUI 也能带着正确的身份与配对启动。
-- 服务 supervisor 轮询间隔从 10 秒缩短到 2 秒：重启后预登录 GUI 的拉起与登录瞬间的交棒响应更快（配合 GUI 冷启动与自动发现，开机到可跨屏的预期总耗时约 15–30 秒，请在登录界面至少等待 30 秒再测）。
+- 修复预登录跨屏不生效的根因：`Path(SystemDrive) / "Users"` 会生成盘符相对路径 `C:Users\...`（缺根分隔符，解析到服务工作目录下），配置目录校验恒败，预登录 GUI 从未被拉起（0.8.30 日志可见 `config incomplete in C:Users\Administrator\...`）。改用 `Path(SystemDrive).anchor`（`C:\`）构造绝对路径，last-user 主路径与回退扫描一并修复。
+- 修复副机出现两个 MouseShare 窗口（一已连接一未连接）的两条路径：①登录瞬间服务拉起 GUI 与开机自启动项赛跑，输家等待超时后会删除仍存活的锁强行启动第二实例——现在只要锁主进程存活就一直等待，绝不删活锁；②进程存活检测遇「拒绝访问」（提权运行的锁主）误判为已死亡——现在视为存活。
+- 服务会话中残留的 SYSTEM 身份预登录 GUI（服务重启后句柄丢失的孤儿）在用户登录后会被自动终结，保证登录桌面只有一个 GUI。
+- 修复对刚自行退出的注入助手执行 TerminateProcess 报 ERROR_ACCESS_DENIED 的竞态：收割死进程提前到用户切换处理之前，终止操作失败仅记录不再中断循环。
+- 兼容性说明：不同应用版本之间本可互通（发现与会话校验用的是协议版本常量，非应用版本），升级无需三台机器同步。
+- v0.8.30（第十三层）：预登录 GUI 跳过原因写入日志（不再无声放弃）+ last-user 配置目录失效时扫描 C:\Users\*\AppData\Local\MouseShare 回退 + supervisor 轮询 10 秒→2 秒。
 - v0.8.29（第十二层修复）：服务拉起 GUI 恒报 [WinError 87]——CreateEnvironmentBlock 返回 Unicode 环境块，CreateProcessAsUserW 必须带 CREATE_UNICODE_ENVIRONMENT 标志；补上后服务拉起首次真正生效（日志出现 app launched）。
 - v0.8.28（第十一层，登录前跨屏）：服务记录最近登录用户名（last_user.txt），无人登录时以 SYSTEM 身份把完整 GUI 拉到控制台会话并经 --config-dir 指向真实用户配置目录（身份、配对、锁屏设置全部复用），登录瞬间交棒（先杀后拉）；支持 MOUSESHARE_CONFIG_DIR 与 --config-dir 覆盖；预登录目录校验 settings.json + identity.key 且拒绝路径穿越。
 - v0.8.27：修复注入助手一连上就崩溃退出的死循环（injector spawned → app connected → 数秒后 injector exited；反复重拉）：pywin32 的 win32pipe 模块只有管道管理函数（Create/Connect/Disconnect），ReadFile/WriteFile/CloseHandle 在 win32file——此前第一次读管道即抛 AttributeError，输入记录从未被读走，锁屏注入始终收不到事件。
