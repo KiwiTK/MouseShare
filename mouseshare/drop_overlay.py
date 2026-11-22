@@ -430,13 +430,22 @@ def run_preview(app, smoke=False):
     controller.preview_deadline = time.monotonic()+12
     app.aboutToQuit.connect(controller.close)
     if smoke:
+        visible_deadline = time.monotonic()+3
         def check():
             try:
-                assert controller.surface.isVisible()
+                # A CI desktop session may map the window slower than the first
+                # 100 ms tick; poll for visibility instead of asserting once.
+                if not controller.surface.isVisible():
+                    if time.monotonic() < visible_deadline:
+                        QTimer.singleShot(100, check)
+                        return
+                    raise AssertionError('surface not visible within 3s')
                 bounds = app.primaryScreen().geometry()
-                assert bounds.contains(controller.surface.geometry())
-                assert controller.surface.width()*controller.surface.height() < bounds.width()*bounds.height()*.15
-                assert not controller.surface.isActiveWindow()
+                assert bounds.contains(controller.surface.geometry()), \
+                    f'surface {controller.surface.geometry()} outside screen {bounds}'
+                assert controller.surface.width()*controller.surface.height() \
+                    < bounds.width()*bounds.height()*.15, 'surface covers too much of the screen'
+                assert not controller.surface.isActiveWindow(), 'surface became the active window'
                 assert not controller.surface.backdrop.error, controller.surface.backdrop.error
                 for side in ('left', 'right', 'top', 'bottom'):
                     controller.surface.dismiss()
