@@ -169,9 +169,12 @@ def run_injector():
             1, 65536, 65536, 0, attributes)
         try:
             win32pipe.ConnectNamedPipe(pipe)
-        except OSError:
-            win32pipe.CloseHandle(pipe)
-            continue
+        except OSError as exc:
+            # ERROR_PIPE_CONNECTED: the client landed between CreateNamedPipe
+            # and ConnectNamedPipe — the connection is valid, keep it.
+            if getattr(exc, 'winerror', None) != 535:
+                win32pipe.CloseHandle(pipe)
+                continue
         if client_pid is not None and not client_is_mouseshare(client_pid(pipe)):
             log('rejected pipe client (unknown image)')
             win32pipe.DisconnectNamedPipe(pipe)
@@ -490,7 +493,11 @@ def spawn_injector(exe):
                                     CREATE_NO_WINDOW, None, None,
                                     ctypes.byref(startup), ctypes.byref(info)):
             log(f'injector spawned in session {session}')
-            return info.hProcess.value or 0
+            # Structure fields of c_void_p come back as plain int (or None),
+            # unlike standalone instances which still expose .value.
+            if info.hThread:
+                K32.CloseHandle(info.hThread)
+            return info.hProcess or 0
         log(f'spawn failed: {ctypes.WinError(ctypes.get_last_error())}')
     except Exception as exc:
         log(f'spawn failed: {exc}')
