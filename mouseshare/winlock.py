@@ -260,7 +260,12 @@ def prelogon_config_state(profile_root=None):
     """
     import pathlib
     if profile_root is None:
-        profile_root = pathlib.Path(os.environ.get('SystemDrive', 'C:')) / 'Users'
+        # Path('C:') is *drive-relative* (its root is empty): appending 'Users'
+        # yields 'C:Users\...', which resolves against the service's working
+        # directory and never matches a real profile. The anchor carries the
+        # missing separator: Path('C:').anchor == 'C:\\'.
+        drive = pathlib.Path(os.environ.get('SystemDrive', 'C:')).anchor or 'C:\\'
+        profile_root = pathlib.Path(drive) / 'Users'
     profile_root = pathlib.Path(profile_root)
     try:
         username = pathlib.Path(LOG_DIR, 'last_user.txt').read_text(encoding='utf-8').strip()
@@ -545,13 +550,24 @@ def supervisor(halt):
         handle = 0
         try:
             sid = console_user_sid()
+            # Reap a dead injector BEFORE handling user changes: terminating
+            # an already-exited process fails with ERROR_ACCESS_DENIED, and a
+            # user flip on the same wake used to surface that as a supervisor
+            # error and delay the respawn.
+            if child is not None and win32process.GetExitCodeProcess(child) != 259:  # STILL_ACTIVE
+                log('injector exited; respawning')
+                win32api.CloseHandle(child)
+                child = None
             if child is not None and sid != last_sid:
                 # The injector's pipe DACL encodes the console user captured at
                 # its startup. A boot-time injector serves SYSTEM only, so once
                 # someone signs in the app could never open the pipe: restart
                 # the helper so it is rebuilt for the signed-in user.
                 log('console user changed; restarting injector')
-                win32api.TerminateProcess(child, 0)
+                try:
+                    win32api.TerminateProcess(child, 0)
+                except Exception as exc:
+                    log(f'injector terminate skipped: {exc}')
                 win32api.CloseHandle(child)
                 child = None
             if app_child is not None and sid != last_sid:
@@ -559,7 +575,10 @@ def supervisor(halt):
                 # over: kill it and let the app check below relaunch the GUI
                 # inside the user's own token.
                 log('handing the app over to the signed-in user')
-                win32api.TerminateProcess(app_child, 0)
+                try:
+                    win32api.TerminateProcess(app_child, 0)
+                except Exception as exc:
+                    log(f'app handover terminate skipped: {exc}')
                 win32api.CloseHandle(app_child)
                 app_child = None
                 prelogon_skip_reason = None
@@ -573,10 +592,6 @@ def supervisor(halt):
                             fh.write(username)
                     except OSError:
                         pass
-            if child is not None and win32process.GetExitCodeProcess(child) != 259:  # STILL_ACTIVE
-                log('injector exited; respawning')
-                win32api.CloseHandle(child)
-                child = None
             if child is None:
                 exe = sys.executable
                 if not os.path.exists(PIPE_PATH):

@@ -147,3 +147,28 @@ def test_supervisor_kills_stray_system_gui():
     src = _pkg_source("winlock.py")
     assert "terminating stray pre-logon GUI" in src
     assert "system_app_pids" in src
+
+
+def test_profile_root_uses_drive_anchor():
+    """Path(SystemDrive) is drive-relative: 'C:' / 'Users' == 'C:Users'.
+
+    Regression (0.8.30): the pre-logon check resolved C:Users\\... against
+    the service working directory, config validation always failed, and the
+    pre-logon GUI never launched ("config incomplete in C:Users\\...").
+    """
+    src = _pkg_source("winlock.py")
+    assert ".anchor" in src
+    assert "Path(os.environ.get('SystemDrive', 'C:')) / 'Users'" not in src
+
+
+def test_terminate_races_are_tolerated():
+    """Terminating an already-dead injector must not raise into the loop.
+
+    Regression (0.8.30 log): a user flip on a wake where the injector had
+    just exited surfaced ERROR_ACCESS_DENIED from TerminateProcess as a
+    supervisor error instead of a clean respawn.
+    """
+    src = _pkg_source("winlock.py")
+    assert "injector terminate skipped" in src
+    assert "app handover terminate skipped" in src
+    assert "GetExitCodeProcess(child) != 259" in src.split("console user changed")[0]
