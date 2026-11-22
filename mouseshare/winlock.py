@@ -230,6 +230,41 @@ def console_user_sid():
         return None
 
 
+def console_user_name():
+    try:
+        import win32ts
+        session = K32.WTSGetActiveConsoleSessionId()
+        return win32ts.WTSQuerySessionInformation(
+            win32ts.WTS_CURRENT_SERVER_HANDLE, session, win32ts.WTSUserName) or None
+    except Exception as exc:
+        log(f'console name lookup failed: {exc}')
+        return None
+
+
+def prelogon_config_dir(profile_root=None):
+    """Config dir of the last console user, or None when unknown/absent.
+
+    The pre-logon GUI runs as SYSTEM, so LOCALAPPDATA points at the SYSTEM
+    profile and pairing would be lost. The supervisor records the console
+    user name while they are signed in; after a reboot the service points
+    the pre-logon GUI back at that user's real config dir. Verifying
+    settings.json + identity.key keeps a wrong profile guess harmless.
+    """
+    import pathlib
+    try:
+        username = pathlib.Path(LOG_DIR, 'last_user.txt').read_text(encoding='utf-8').strip()
+    except OSError:
+        return None
+    if not username or any(sep in username for sep in ('/', '\\', ':')):
+        return None
+    if profile_root is None:
+        profile_root = pathlib.Path(os.environ.get('SystemDrive', 'C:')) / 'Users'
+    directory = pathlib.Path(profile_root) / username / 'AppData' / 'Local' / 'MouseShare'
+    if not (directory / 'settings.json').exists() or not (directory / 'identity.key').exists():
+        return None
+    return directory
+
+
 # --------------------------------------------------------------------------
 # Launching the app at sign-in (matches how "无界鼠标" is instantly usable)
 # --------------------------------------------------------------------------
@@ -283,7 +318,7 @@ def duplicate_primary_token(token):
     return primary
 
 
-def spawn_app(entries, session):
+def spawn_app(entries, session, config_dir=None):
     """Start the GUI in the console session the moment someone signs in.
 
     The HKCU Run key only fires once Explorer has worked through its startup
@@ -294,6 +329,11 @@ def spawn_app(entries, session):
     The environment block is mandatory: CreateProcessAsUser inherits the
     service's environment, where %LOCALAPPDATA% still points at the SYSTEM
     profile and the app would silently lose its config, identity and pairing.
+
+    config_dir is used for the pre-logon spawn: the app runs as SYSTEM with
+    LOCALAPPDATA pointing at the SYSTEM profile, so the user's real config
+    directory (identity, pairing, allow_locked) is passed explicitly.
+    Returns the child process handle (0 when nothing was started).
     """
     import win32api
     import win32con
@@ -301,10 +341,10 @@ def spawn_app(entries, session):
 
     exe = app_image_path()
     if not os.path.exists(exe):
-        return  # portable layout without the GUI next to the service
+        return 0  # portable layout without the GUI next to the service
     host_pid = find_winlogon_pid(entries, session)
     if host_pid is None:
-        return
+        return 0
     process = win32api.OpenProcess(win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, host_pid)
     try:
         token = win32security.OpenProcessToken(
@@ -322,14 +362,22 @@ def spawn_app(entries, session):
     startup.cb = ctypes.sizeof(STARTUPINFOW)
     startup.lpDesktop = 'WinSta0\\Default'
     info = PROCESS_INFORMATION()
-    command = ctypes.create_unicode_buffer(f'"{exe}"')
+    command = f'"{exe}"' if not config_dir else f'"{exe}" --config-dir "{config_dir}"'
+    command = ctypes.create_unicode_buffer(command)
     try:
         if ADV.CreateProcessAsUserW(primary.value or 0, exe, command, None, None, False,
                                     CREATE_NO_WINDOW, env, None,
                                     ctypes.byref(startup), ctypes.byref(info)):
             log(f'app launched in session {session} (pid {info.dwProcessId})')
-        else:
-            log(f'app launch failed: {ctypes.WinError(ctypes.get_last_error())}')
+            if info.hThread:
+                K32.CloseHandle(info.hThread)
+            return info.hProcess or 0
+        log(f'app launch failed: {ctypes.WinError(ctypes.get_last_error())}')
+        if info.hThread:
+            K32.CloseHandle(info.hThread)
+        if info.hProcess:
+            K32.CloseHandle(info.hProcess)
+        return 0
     finally:
         K32.CloseHandle(primary)
         if env:
@@ -416,9 +464,11 @@ def supervisor(halt):
     import win32ts
 
     child = None
+    app_child = None  # pre-logon SYSTEM GUI; terminated once someone signs in
     last_sid = None
     last_app_check = 0.0
     while win32event.WaitForSingleObject(halt, 10000) != 0:  # wake every 10 s
+        handle = 0
         try:
             sid = console_user_sid()
             if child is not None and sid != last_sid:
@@ -430,7 +480,24 @@ def supervisor(halt):
                 win32api.TerminateProcess(child, 0)
                 win32api.CloseHandle(child)
                 child = None
+            if app_child is not None and sid != last_sid:
+                # The pre-logon GUI runs as SYSTEM. At sign-in hand the job
+                # over: kill it and let the app check below relaunch the GUI
+                # inside the user's own token.
+                log('handing the app over to the signed-in user')
+                win32api.TerminateProcess(app_child, 0)
+                win32api.CloseHandle(app_child)
+                app_child = None
             last_sid = sid
+            if sid:
+                username = console_user_name()
+                if username:
+                    try:
+                        with open(os.path.join(LOG_DIR, 'last_user.txt'), 'w',
+                                  encoding='utf-8') as fh:
+                            fh.write(username)
+                    except OSError:
+                        pass
             if child is not None and win32process.GetExitCodeProcess(child) != 259:  # STILL_ACTIVE
                 log('injector exited; respawning')
                 win32api.CloseHandle(child)
@@ -439,20 +506,37 @@ def supervisor(halt):
                 exe = sys.executable
                 if not os.path.exists(PIPE_PATH):
                     child = spawn_injector(exe)
-            # Sign-in moment: start the GUI before the Run key gets a turn, so
-            # crossing works as soon as the desktop appears (see spawn_app).
-            if sid and time.time() - last_app_check >= 30:
+            # Keep exactly one GUI alive in the console session: launched with
+            # the user's token after sign-in, as SYSTEM (pointed at the last
+            # user's config) before anyone signs in — so the lock screen after
+            # a reboot can be driven from the other computer too.
+            if time.time() - last_app_check >= 10:
                 last_app_check = time.time()
                 session = K32.WTSGetActiveConsoleSessionId()
                 if session:
                     entries = win32ts.WTSEnumerateProcesses(win32ts.WTS_CURRENT_SERVER_HANDLE)
                     if not session_has_app(entries, session):
-                        spawn_app(entries, session)
+                        if sid:
+                            handle = spawn_app(entries, session)
+                        else:
+                            directory = prelogon_config_dir()
+                            if directory:
+                                handle = spawn_app(entries, session, config_dir=str(directory))
+                                if handle:
+                                    log('pre-logon app running; crossing works before sign-in')
+                        if handle:
+                            if sid:
+                                K32.CloseHandle(handle)  # user-context GUI needs no tracking
+                            else:
+                                app_child = handle
         except Exception as exc:
             log(f'supervisor error: {exc}')
     if child is not None:
         win32api.TerminateProcess(child, 0)
         win32api.CloseHandle(child)
+    if app_child is not None:
+        win32api.TerminateProcess(app_child, 0)
+        win32api.CloseHandle(app_child)
 
 
 def find_winlogon_pid(entries, session):

@@ -7,6 +7,11 @@ from pathlib import Path
 
 
 def data_dir() -> Path:
+    # The lock-screen service launches a pre-logon GUI as SYSTEM pointed at
+    # the last console user's profile; the override must beat LOCALAPPDATA.
+    override = os.environ.get("MOUSESHARE_CONFIG_DIR")
+    if override:
+        return Path(override)
     if platform.system() == "Windows":
         root = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local"))
     elif platform.system() == "Darwin":

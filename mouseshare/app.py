@@ -934,8 +934,12 @@ def main():
     parser.add_argument('--preview-drop', action='store_true', help='Preview the drop overlay for 12 seconds, without input hooks')
     parser.add_argument('--drop-smoke-test', action='store_true', help='Validate native blur and clean up without hooks or network')
     parser.add_argument('--paste-to', help='Receive offered files into this existing local folder')
+    parser.add_argument('--config-dir', help='Override the per-user config directory (used by the pre-logon service spawn)')
     parser.add_argument('--diagnostics', action='store_true', help='Write local input health counts without key values')
     args = parser.parse_args()
+    if args.config_dir:
+        # Must land before any Settings/Identity construction resolves data_dir().
+        os.environ['MOUSESHARE_CONFIG_DIR'] = args.config_dir
     if sys.platform == "win32":
         try:
             ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
