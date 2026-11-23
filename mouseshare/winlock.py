@@ -610,6 +610,12 @@ def supervisor(halt):
                 win32api.CloseHandle(app_child)
                 app_child = None
                 prelogon_skip_reason = None
+                # The connection died with the old GUI; every second the new
+                # one is not spawned widens the reconnect gap. Reset the
+                # check timer so the app check below runs in THIS loop
+                # iteration (the routine 10 s cadence used to add up to 10 s
+                # of dead air on top of the unavoidable cold start).
+                last_app_check = 0.0
             last_sid = sid
             if sid:
                 username = console_user_name()

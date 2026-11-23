@@ -227,3 +227,16 @@ def test_terminate_races_are_tolerated():
     assert "injector terminate skipped" in src
     assert "app handover terminate skipped" in src
     assert "GetExitCodeProcess(child) != 259" in src.split("console user changed")[0]
+
+
+def test_handover_spawns_user_gui_immediately():
+    """The handover must not wait for the routine 10 s app-check cadence.
+
+    The TLS connection dies with the killed pre-logon GUI; the user GUI
+    must spawn in the same supervisor iteration (0.8.34), otherwise the
+    reconnect gap grows by up to 10 s of dead air on top of cold start.
+    """
+    src = _pkg_source("winlock.py")
+    handover = src.split("handing the app over to the signed-in user")[1]
+    check_gate = handover.split("last_app_check >= 10")[0]
+    assert "last_app_check = 0.0" in check_gate
