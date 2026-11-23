@@ -21,6 +21,20 @@ ACCENT = "#0e9384"
 # Classic pointer silhouette, tip at the origin, about 18 × 28 units.
 ARROW = [(0, 24), (6.2, 18.3), (10.6, 27.5), (14.4, 25.7), (10, 16.8), (17.6, 16.8)]
 
+# macOS renders a QSystemTrayIcon into a fixed ~18 pt status-item slot. The
+# template artwork used to leave an 18% inset (82% of the canvas), copied from
+# WorkBuddy's trayTemplate; neighbouring status icons draw nearly edge-to-edge,
+# so MouseShare looked a whole size smaller. Scale the whole mark about the
+# canvas centre so its ink fills ~95% of the slot. A single-colour mask also
+# benefits from the thicker stroke this produces on both bar tints.
+TRAY_TEMPLATE_SCALE = 1.18
+
+# Qt may select the *smallest* pixmap in a QIcon. Offering a 16 px template let
+# it render the mark at ~12 px. macOS templates start at 22 px instead; other
+# platforms (colour tray icons) keep the original size set untouched.
+TRAY_SIZES = (16, 22, 32, 44, 64)
+MAC_TEMPLATE_TRAY_SIZES = (22, 32, 44, 64)
+
 
 def pointer(x, y, scale=1.0):
     path = QPainterPath(QPointF(x, y))
@@ -81,6 +95,14 @@ def icon_image(size=256, template=False):
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     p.scale(size / 128, size / 128)
     if template:
+        # Enlarge the shared mark about the canvas centre so it fills the
+        # macOS status-item slot like neighbouring icons (see the constants
+        # above). Applied here, not in _template, so the colour artwork in
+        # _color is never touched.
+        k = TRAY_TEMPLATE_SCALE
+        centre = 64.0
+        p.translate(centre * (1 - k), centre * (1 - k))
+        p.scale(k, k)
         _template(p, size)
     else:
         _color(p, size)
@@ -132,10 +154,11 @@ def _color(p, size):
 def _template(p, size):
     # Monochrome menu bar mask: the shared-mark — two diagonally overlapping
     # screens with the pointer at their junction, one input feeding both. Same
-    # geometry as the 44 px logo, rescaled so the artwork fills 82% of the
-    # canvas (105/128), matching the macOS menu-bar convention measured on
-    # WorkBuddy's trayTemplate (18/22). The second screen is a stroked ring over
-    # a cleared interior: as a template mask it stays readable on both bar tints.
+    # geometry as the 44 px logo. The caller (icon_image) applies
+    # TRAY_TEMPLATE_SCALE so the artwork fills ~95% of the slot; earlier builds
+    # left an 18% inset and looked a size smaller than neighbouring icons. The
+    # second screen is a stroked ring over a cleared interior: as a template
+    # mask it stays readable on both bar tints.
     black = QColor("#000000")
     p.setPen(Qt.PenStyle.NoPen)
     p.setBrush(black)
@@ -169,7 +192,11 @@ def app_icon():
 
 def tray_icon(template=False):
     icon = QIcon()
-    for size in (16, 22, 32, 44, 64):
+    # macOS template icons must not offer a 16 px canvas, or Qt picks it and
+    # the mark renders ~12 px tall. Colour tray icons on other platforms keep
+    # the full original size set.
+    sizes = MAC_TEMPLATE_TRAY_SIZES if template else TRAY_SIZES
+    for size in sizes:
         icon.addPixmap(QPixmap.fromImage(icon_image(size, template)))
     icon.setIsMask(template)
     return icon
