@@ -1,3 +1,11 @@
+MouseShare v0.8.34 · 登录交棒提速 + 安装器锁屏服务选项标注（Windows） / faster sign-in handover & installer option annotation
+
+- 登录交棒提速：服务检测到登录（换用户）杀掉预登录 GUI 后，原先要等服务里 10 秒一次的例行检查才拉起新 GUI——登录瞬间连接已随旧 GUI 死亡，这段例行等待纯属额外断档。现在交棒同一循环内（≤2 秒）立即拉起用户身份 GUI，解锁后重连断档从约 30 秒压缩到约 10~20 秒（剩余为 GUI 冷启动与重新发现广播的固有耗时；真正的零断连需要把 TLS 连接跨进程"过户"，操作系统层面不可行）。
+- 安装器「锁屏或登录前仍可被控制」选项改为中文描述并标注（副 Windows 必选）。MouseShareService.exe 一直随主程序全量打包，无需单独下载。
+- 兼容性说明：不同应用版本之间互通（协议版本常量），无需三台同步升级。
+
+---
+
 MouseShare v0.8.33 · 第十七/十八层：两个「修复从未生效」的实锤修复（Windows） / two fixes that never actually took effect, now truly fixed
 
 - 第十七层（0.8.32 自引入，修复从未执行过）：`WTSQueryUserToken` 返回 pywin32 的 PyHANDLE 句柄对象，第十六层代码用 raw ctypes 的 `CloseHandle` 关闭它——ctypes 无法转换 PyHANDLE，在 finally 块抛 TypeError，把已成功复制的用户令牌一并丢弃，静默回退 SYSTEM 令牌。表现为日志 `app: user token unavailable (TypeError: Don't know how to convert parameter 1)`，登录后 GUI 仍是 SYSTEM 身份、被残留清理误杀、spawn/kill 循环复活——0.8.32 症状与 0.8.31 完全一致的原因。改用 PyHANDLE 自带 `.Close()`，pywin32 句柄对象绝不传给 raw ctypes。
