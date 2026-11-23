@@ -1,4 +1,10 @@
-"""Shared vector artwork for the app, tray and packaged platform icons."""
+"""Shared artwork for the app, tray and packaged platform icons.
+
+The colour app/Dock icon and the Windows/Linux tray icon are drawn as vectors
+below. The macOS menu-bar icon is different: it is the user's Kiwi wordmark,
+baked as an inline single-colour alpha mask (see _kiwi_tray_art.py) because a
+status item needs a template image, not the colour logo.
+"""
 import math
 
 from PySide6.QtCore import QPointF, QRectF, Qt
@@ -15,25 +21,24 @@ from PySide6.QtGui import (
     QTransform,
 )
 
+from . import _kiwi_tray_art
+
 INK = "#14262b"
 ACCENT = "#0e9384"
 
 # Classic pointer silhouette, tip at the origin, about 18 × 28 units.
 ARROW = [(0, 24), (6.2, 18.3), (10.6, 27.5), (14.4, 25.7), (10, 16.8), (17.6, 16.8)]
 
-# macOS renders a QSystemTrayIcon into a fixed ~18 pt status-item slot. The
-# template artwork used to leave an 18% inset (82% of the canvas), copied from
-# WorkBuddy's trayTemplate; neighbouring status icons draw nearly edge-to-edge,
-# so MouseShare looked a whole size smaller. Scale the whole mark about the
-# canvas centre so its ink fills ~95% of the slot. A single-colour mask also
-# benefits from the thicker stroke this produces on both bar tints.
-TRAY_TEMPLATE_SCALE = 1.18
-
-# Qt may select the *smallest* pixmap in a QIcon. Offering a 16 px template let
-# it render the mark at ~12 px. macOS templates start at 22 px instead; other
-# platforms (colour tray icons) keep the original size set untouched.
+# Qt may select the *smallest* pixmap in a QIcon. A 16 px canvas collapses the
+# wordmark's letter gaps entirely, so macOS templates start at 22 px. Other
+# platforms (colour vector tray icons) keep the original size set untouched.
 TRAY_SIZES = (16, 22, 32, 44, 64)
 MAC_TEMPLATE_TRAY_SIZES = (22, 32, 44, 64)
+
+# Hardening alpha after downscale keeps the slimmed letter gaps open. Qt's
+# SmoothTransformation leaves semi-transparent fringes that bridge the gaps;
+# a template mask is meant to be crisp, and macOS tints it from alpha alone.
+TEMPLATE_ALPHA_CUTOFF = 110
 
 
 def pointer(x, y, scale=1.0):
@@ -89,23 +94,14 @@ def _jump_trail(start, end, lift):
 
 
 def icon_image(size=256, template=False):
+    if template:
+        return _template_image(size)
     image = QImage(size, size, QImage.Format.Format_ARGB32_Premultiplied)
     image.fill(Qt.GlobalColor.transparent)
     p = QPainter(image)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     p.scale(size / 128, size / 128)
-    if template:
-        # Enlarge the shared mark about the canvas centre so it fills the
-        # macOS status-item slot like neighbouring icons (see the constants
-        # above). Applied here, not in _template, so the colour artwork in
-        # _color is never touched.
-        k = TRAY_TEMPLATE_SCALE
-        centre = 64.0
-        p.translate(centre * (1 - k), centre * (1 - k))
-        p.scale(k, k)
-        _template(p, size)
-    else:
-        _color(p, size)
+    _color(p, size)
     p.end()
     return image
 
@@ -151,36 +147,29 @@ def _color(p, size):
     p.drawPath(cursor)
 
 
-def _template(p, size):
-    # Monochrome menu bar mask: the shared-mark — two diagonally overlapping
-    # screens with the pointer at their junction, one input feeding both. Same
-    # geometry as the 44 px logo. The caller (icon_image) applies
-    # TRAY_TEMPLATE_SCALE so the artwork fills ~95% of the slot; earlier builds
-    # left an 18% inset and looked a size smaller than neighbouring icons. The
-    # second screen is a stroked ring over a cleared interior: as a template
-    # mask it stays readable on both bar tints.
-    black = QColor("#000000")
-    p.setPen(Qt.PenStyle.NoPen)
-    p.setBrush(black)
-    p.drawRoundedRect(QRectF(16, 16, 60, 60), 19.5, 19.5)
-    p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
-    p.drawRoundedRect(QRectF(52, 52, 60, 60), 19.5, 19.5)
-    p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-    p.setBrush(Qt.BrushStyle.NoBrush)
-    p.setPen(_pen(black, 9))
-    p.drawRoundedRect(QRectF(52, 52, 60, 60), 19.5, 19.5)
-    p.setPen(Qt.PenStyle.NoPen)
-    p.setBrush(black)
-    mark = QPainterPath(QPointF(63.4, 60.4))
-    mark.lineTo(63.4, 92.9)
-    mark.lineTo(74.2, 85.9)
-    mark.lineTo(80.4, 103.8)
-    mark.lineTo(88.9, 100.3)
-    mark.lineTo(82.8, 83.6)
-    mark.lineTo(100.5, 82.1)
-    mark.closeSubpath()
-    p.drawPath(mark)
+def _template_image(size):
+    """macOS menu-bar template: the Kiwi wordmark as a crisp alpha mask.
 
+    The artwork is baked into _kiwi_tray_art.py as a 512 px black+alpha PNG so
+    there is no runtime file lookup (the app bundle / installer / Linux package
+    all behave identically). Qt's smooth downscale is followed by alpha
+    hardening: semi-transparent fringes would otherwise bridge the slimmed
+    letter gaps and the wordmark would read as one black block at 18 pt again.
+    Colour values are pure black - macOS tints a template image from alpha.
+    """
+    master = QImage()
+    master.loadFromData(_kiwi_tray_art.master_png(), "PNG")
+    scaled = master.convertToFormat(QImage.Format.Format_ARGB32).scaled(
+        size, size, Qt.AspectRatioMode.KeepAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    image = QImage(size, size, QImage.Format.Format_ARGB32)
+    image.fill(Qt.GlobalColor.transparent)
+    for y in range(size):
+        for x in range(size):
+            if (scaled.pixel(x, y) >> 24) & 0xFF >= TEMPLATE_ALPHA_CUTOFF:
+                image.setPixel(x, y, 0xFF000000)
+    return image
 
 
 def app_icon():
