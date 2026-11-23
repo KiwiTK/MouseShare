@@ -1,9 +1,9 @@
 """Shared artwork for the app, tray and packaged platform icons.
 
 The colour app/Dock icon and the Windows/Linux tray icon are drawn as vectors
-below. The macOS menu-bar icon is different: it is the user's Kiwi wordmark,
-baked as an inline single-colour alpha mask (see _kiwi_tray_art.py) because a
-status item needs a template image, not the colour logo.
+below. The macOS menu-bar icon is different: it is the user's own KIWI design,
+baked as one inline single-colour alpha mask per tray size (see
+_kiwi_tray_art.py) because a status item needs a template image, not the logo.
 """
 import math
 
@@ -29,16 +29,13 @@ ACCENT = "#0e9384"
 # Classic pointer silhouette, tip at the origin, about 18 × 28 units.
 ARROW = [(0, 24), (6.2, 18.3), (10.6, 27.5), (14.4, 25.7), (10, 16.8), (17.6, 16.8)]
 
-# Qt may select the *smallest* pixmap in a QIcon. A 16 px canvas collapses the
-# wordmark's letter gaps entirely, so macOS templates start at 22 px. Other
-# platforms (colour vector tray icons) keep the original size set untouched.
+# Qt may select the *smallest* pixmap in a QIcon. Offering the 16 px canvas
+# makes the status item pick it and render too small, so macOS templates start
+# at 22 px. Other platforms (colour vector tray icons) keep the full size set.
+# The user ships a finished 16 px render too; it stays inlined for any caller
+# that wants it, but is deliberately not offered by the macOS template icon.
 TRAY_SIZES = (16, 22, 32, 44, 64)
 MAC_TEMPLATE_TRAY_SIZES = (22, 32, 44, 64)
-
-# Hardening alpha after downscale keeps the slimmed letter gaps open. Qt's
-# SmoothTransformation leaves semi-transparent fringes that bridge the gaps;
-# a template mask is meant to be crisp, and macOS tints it from alpha alone.
-TEMPLATE_ALPHA_CUTOFF = 110
 
 
 def pointer(x, y, scale=1.0):
@@ -148,28 +145,31 @@ def _color(p, size):
 
 
 def _template_image(size):
-    """macOS menu-bar template: the Kiwi wordmark as a crisp alpha mask.
+    """macOS menu-bar template: the user's KIWI design as a soft alpha mask.
 
-    The artwork is baked into _kiwi_tray_art.py as a 512 px black+alpha PNG so
-    there is no runtime file lookup (the app bundle / installer / Linux package
-    all behave identically). Qt's smooth downscale is followed by alpha
-    hardening: semi-transparent fringes would otherwise bridge the slimmed
-    letter gaps and the wordmark would read as one black block at 18 pt again.
-    Colour values are pure black - macOS tints a template image from alpha.
+    The user drew one finished, LANCZOS-rendered PNG per tray size, each with
+    deliberately widened letter gaps and clean anti-aliased edges. For those
+    exact sizes we return the artwork VERBATIM - no rescale, no alpha
+    hardening - so what the status bar shows is precisely what was designed.
+    Pure black + soft alpha is exactly a macOS template image: the system tints
+    it from alpha alone, and the soft edges are the anti-aliasing, not noise.
+
+    For any other size (offscreen previews, tests) we smooth-scale the 512 px
+    master as a fallback, keeping the soft alpha. All of it is inlined in
+    _kiwi_tray_art.py, so the app bundle / installer / Linux package behave
+    identically with no runtime file lookup.
     """
+    finished = _kiwi_tray_art.size_png(size)
+    if finished is not None:
+        image = QImage()
+        image.loadFromData(finished, "PNG")
+        return image.convertToFormat(QImage.Format.Format_ARGB32)
     master = QImage()
     master.loadFromData(_kiwi_tray_art.master_png(), "PNG")
-    scaled = master.convertToFormat(QImage.Format.Format_ARGB32).scaled(
+    return master.convertToFormat(QImage.Format.Format_ARGB32).scaled(
         size, size, Qt.AspectRatioMode.KeepAspectRatio,
         Qt.TransformationMode.SmoothTransformation,
     )
-    image = QImage(size, size, QImage.Format.Format_ARGB32)
-    image.fill(Qt.GlobalColor.transparent)
-    for y in range(size):
-        for x in range(size):
-            if (scaled.pixel(x, y) >> 24) & 0xFF >= TEMPLATE_ALPHA_CUTOFF:
-                image.setPixel(x, y, 0xFF000000)
-    return image
 
 
 def app_icon():
@@ -182,7 +182,7 @@ def app_icon():
 def tray_icon(template=False):
     icon = QIcon()
     # macOS template icons must not offer a 16 px canvas, or Qt picks it and
-    # the mark renders ~12 px tall. Colour tray icons on other platforms keep
+    # the mark renders too small. Colour tray icons on other platforms keep
     # the full original size set.
     sizes = MAC_TEMPLATE_TRAY_SIZES if template else TRAY_SIZES
     for size in sizes:
