@@ -115,7 +115,7 @@ jobs:
         with:
           name: MouseShare-${{ matrix.artifact }}
           path: |
-            dist/*.exe
+            dist/MouseShare-*-Windows-x64-Setup.exe
             dist/*.dmg
             dist/*.zip
             dist/*.deb

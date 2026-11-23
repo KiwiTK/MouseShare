@@ -218,6 +218,11 @@ def main():
             "--exclude-module", "unittest", "--exclude-module", "PySide6",
             "--icon", str(ASSETS / "MouseShare.ico"), str(ROOT / "service_launcher.py"), timeout=900)
         shutil.copyfile(DIST / "MouseShareService.exe", DIST / "MouseShare/MouseShareService.exe")
+        # PyInstaller --onefile leaves the original at dist/ root. It is a
+        # build leftover only - the installer ships the copy inside
+        # dist/MouseShare/. Removing it keeps dist/*.exe to just the Setup
+        # installer, so CI never uploads a stray standalone service asset.
+        (DIST / "MouseShareService.exe").unlink()
         log("smoke testing the bundled exe")
         run(DIST / "MouseShare/MouseShare.exe", "--smoke-test", timeout=300)
         run(DIST / "MouseShare/MouseShare.exe", "--drop-smoke-test", timeout=300)
